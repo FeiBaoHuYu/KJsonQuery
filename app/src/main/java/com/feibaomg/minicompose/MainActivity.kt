@@ -5,7 +5,10 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
@@ -13,6 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import com.feibaomg.minicompose.ui.theme.MiniComposeTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
@@ -26,37 +30,53 @@ class MainActivity : ComponentActivity() {
         setContent {
             MiniComposeTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Button(modifier = Modifier.padding(innerPadding), onClick = {  testJsonQuery()}){
-                        Text(text = "testJsonQuery")
+                    Column {
+                        Button(modifier = Modifier.padding(innerPadding), onClick = { testJsonQuery() }) {
+                            Text(text = "testJsonQuery")
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Button(modifier = Modifier.padding(innerPadding), onClick = { releaseJsonQuery() }) {
+                            Text(text = "releaseJsonQuery")
+                        }
                     }
                 }
             }
         }
     }
 
+    private fun releaseJsonQuery() {
+        kjQuery?.release()
+    }
+
+    var file: File? = null
+    var kjQuery: KJsonQuery? = null
+
     private fun testJsonQuery() {
+
         MainScope().launch(Dispatchers.IO) {
-            val file = File(filesDir,"excel.json")
+            if (file == null)
+                file = File(filesDir, "excel.json")
 //            assets.open("excel.json").copyTo(file.outputStream())
             val start = System.currentTimeMillis()
-            val kjQuery = KJsonQuery(file)
-            var result1 = kjQuery.query("$.IniTimer.data[?(@.fixEventID==2)]")
-            kjQuery.rewindBuffer()
-            var result2 = kjQuery.query("$.IniDialogNewFun.data[?(@.dialogueId==439)]")
-            kjQuery.rewindBuffer()
-            var result3 = kjQuery.query("$.IniCatapult.data[?(@.roleId==10001)]")
-            kjQuery.rewindBuffer()
-            var result4 = kjQuery.query("$.IniDialogue.data[?(@.iD==1)]")
-            kjQuery.rewindBuffer()
-            var result5 = kjQuery.query("$.IniWeatherContent.data[?(@.whType==2)]")
-            kjQuery.release()
+            if (kjQuery == null)
+                kjQuery = KJsonQuery(file!!)
+            var result1 = kjQuery!!.query("$.IniTimer.data[*]")
+
+//            var result2 = kjQuery.query("$.IniDialogNewFun.data[?(@.dialogueId==439)]")
+
+//            var result3 = kjQuery.query("$.IniCatapult.data[?(@.roleId==10001)]")
+
+//            var result4 = kjQuery.query("$.IniDialogue.data[?(@.iD==1)]")
+
+//            var result5 = kjQuery.query("$.IniWeatherContent.data[?(@.whType==2)]")
+
             Log.d("MainActivity", "query time: ${System.currentTimeMillis() - start}ms")
 
             Log.d("MainActivity", "IniTimer: $result1")
-            Log.d("MainActivity", "IniDialogNewFun: $result2")
-            Log.d("MainActivity", "IniCatapult: $result3")
-            Log.d("MainActivity", "IniDialogue: $result4")
-            Log.d("MainActivity", "IniWeatherContent: $result5")
+//            Log.d("MainActivity", "IniDialogNewFun: $result2")
+//            Log.d("MainActivity", "IniCatapult: $result3")
+//            Log.d("MainActivity", "IniDialogue: $result4")
+//            Log.d("MainActivity", "IniWeatherContent: $result5")
         }
     }
 }

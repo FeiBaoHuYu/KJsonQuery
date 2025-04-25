@@ -17,21 +17,33 @@ import kotlin.collections.get
 import kotlin.text.iterator
 
 
-
 private const val TAG = "KJsonQuery"
+
 class KJsonQuery {
     private lateinit var fileChannel: FileChannel
     private lateinit var mappedByteBuffer: MappedByteBuffer
+    private val queryCache = mutableMapOf<String, List<Any?>>()
+    lateinit var jsonFile: File
 
     constructor(filepath: String) {
         createJsonReader(File(filepath))
     }
 
-    constructor(file: File){
+    constructor(file: File) {
+        jsonFile = file
         createJsonReader(file)
     }
 
-    fun query(jsonPath: String = "$"): List<Any?> {
+    inner class QueryOption(val cacheResult: Boolean = true)
+
+    fun query(jsonPath: String = "$", option: QueryOption = QueryOption()): List<Any?> {
+        // Check cache first if enabled
+        if (option.cacheResult && queryCache.containsKey(jsonPath)) {
+            val cachedResult = queryCache[jsonPath]
+            if (cachedResult != null) {
+                return cachedResult
+            }
+        }
         try {
             // Create a Gson JsonReader for streaming parsing
             val jsonReader = createJsonReader(mappedByteBuffer)
@@ -42,19 +54,72 @@ class KJsonQuery {
             // Close resources
             jsonReader.close()
 
+            if (option.cacheResult){
+                queryCache[jsonPath] = results
+            }
+            //rewind the buffer  for next query.
+            mappedByteBuffer.rewind()
+
             return results
         } catch (e: Exception) {
-            println("Error processing JSON file: ${e.message}")
-            e.printStackTrace()
+            Log.e(TAG, "Error querying JSON: ", e)
             return emptyList()
+        }
+    }
+
+
+    fun recreateFileBuffer(){
+        if(::jsonFile.isInitialized) {
+            createJsonReader(jsonFile)
+        }
+    }
+
+
+    fun release() {
+        clearCache()
+        releaseFileBuffer()
+    }
+
+    fun releaseFileBuffer() {
+        if (::mappedByteBuffer.isInitialized) {
+            try {
+                mappedByteBuffer.clear()
+            } catch (_: IOException) {
+            }
+        }
+        if (::fileChannel.isInitialized) {
+            try {
+                fileChannel.close()
+            } catch (_: IOException) {
+            }
+        }
+    }
+
+    fun invalidateCache(jsonPath: String) {
+        queryCache.remove(jsonPath)
+    }
+
+    /**
+     * Get the number of cached queries
+     * @return the number of queries in the cache
+     */
+    fun getCacheSize(): Int {
+        return queryCache.size
+    }
+    /**
+     *  Rewind the buffer to the beginning for next gson reader reading again
+     */
+    fun rewindBuffer() {
+        if (::mappedByteBuffer.isInitialized) {
+            mappedByteBuffer.rewind()
         }
     }
 
     private fun queryJson(reader: JsonReader, jsonPath: String): List<Any?> {
         val pathSegments = parseJsonPath(jsonPath)
-        Log.d(TAG,"Path segments: $pathSegments")
+        Log.d(TAG, "Path segments: $pathSegments")
         val results = evaluatePath(reader, pathSegments, 0)
-        Log.d(TAG,"results: $results")
+        Log.d(TAG, "results: $results")
         // Apply custom filter if provided
         return results
     }
@@ -92,12 +157,14 @@ class KJsonQuery {
                             }
                         }
                     }
+
                     is PathSegment.AllElements -> {
                         while (reader.hasNext()) {
                             reader.nextName()
                             results.addAll(evaluatePath(reader, pathSegments, index + 1, customFilter))
                         }
                     }
+
                     else -> {
                         // Skip this object as it doesn't match our path
                         while (reader.hasNext()) {
@@ -125,12 +192,14 @@ class KJsonQuery {
                             arrayIndex++
                         }
                     }
+
                     is PathSegment.AllElements -> {
                         while (reader.hasNext()) {
                             results.addAll(evaluatePath(reader, pathSegments, index + 1, customFilter))
                             arrayIndex++
                         }
                     }
+
                     is PathSegment.Filter -> {
                         while (reader.hasNext()) {
                             if (reader.peek() == JsonToken.BEGIN_OBJECT) {
@@ -147,6 +216,7 @@ class KJsonQuery {
                             arrayIndex++
                         }
                     }
+
                     else -> {
                         // Skip this array as it doesn't match our path
                         while (reader.hasNext()) {
@@ -189,6 +259,7 @@ class KJsonQuery {
                         currentSegment = ""
                     }
                 }
+
                 char == '[' && !inBracket && !inFilter -> {
                     if (currentSegment.isNotEmpty()) {
                         segments.add(PathSegment.Property(currentSegment))
@@ -197,24 +268,28 @@ class KJsonQuery {
                     inBracket = true
                     currentSegment += char
                 }
+
                 char == ']' && inBracket -> {
                     currentSegment += char
                     inBracket = false
 
                     if (!inFilter) {
-                        Log.d(TAG,"Current segment: $currentSegment")
+                        Log.d(TAG, "Current segment: $currentSegment")
                         segments.add(parsePathSegment(currentSegment))
                         currentSegment = ""
                     }
                 }
+
                 char == '(' && inBracket -> {
                     currentSegment += char
                     inFilter = true
                 }
+
                 char == ')' && inFilter -> {
                     currentSegment += char
                     inFilter = false
                 }
+
                 else -> currentSegment += char
             }
 
@@ -241,9 +316,11 @@ class KJsonQuery {
                         val filter = content.substring(1).trim()
                         parseFilter(filter)
                     }
+
                     else -> PathSegment.Property(content.trim('\'', '"'))
                 }
             }
+
             else -> PathSegment.Property(segment)
         }
     }
@@ -274,8 +351,10 @@ class KJsonQuery {
                             right == "true" || right == "false" -> right.toBoolean()
                             right.startsWith("'") && right.endsWith("'") ->
                                 right.substring(1, right.length - 1)
+
                             right.startsWith("\"") && right.endsWith("\"") ->
                                 right.substring(1, right.length - 1)
+
                             else -> right
                         }
                     } catch (e: Exception) {
@@ -314,12 +393,14 @@ class KJsonQuery {
                             }
                         }
                     }
+
                     is PathSegment.AllElements -> {
                         while (reader.hasNext()) {
                             reader.nextName()
                             results.addAll(evaluatePath(reader, pathSegments, index + 1))
                         }
                     }
+
                     else -> {
                         // Skip this object as it doesn't match our path
                         while (reader.hasNext()) {
@@ -335,7 +416,7 @@ class KJsonQuery {
             JsonToken.BEGIN_ARRAY -> {
                 reader.beginArray()
                 var arrayIndex = 0
-                Log.d(TAG,"currentSegment=$currentSegment")
+                Log.d(TAG, "currentSegment=$currentSegment")
                 when (currentSegment) {
                     is PathSegment.ArrayIndex -> {
                         while (reader.hasNext()) {
@@ -347,12 +428,14 @@ class KJsonQuery {
                             arrayIndex++
                         }
                     }
+
                     is PathSegment.AllElements -> {
                         while (reader.hasNext()) {
                             results.addAll(evaluatePath(reader, pathSegments, index + 1))
                             arrayIndex++
                         }
                     }
+
                     is PathSegment.Filter -> {
                         while (reader.hasNext()) {
                             if (reader.peek() == JsonToken.BEGIN_OBJECT) {
@@ -369,6 +452,7 @@ class KJsonQuery {
                             arrayIndex++
                         }
                     }
+
                     else -> {
                         // Skip this array as it doesn't match our path
                         while (reader.hasNext()) {
@@ -403,6 +487,7 @@ class KJsonQuery {
                     else -> false
                 }
             }
+
             "<=" -> {
                 when {
                     value is Int && filter.value is Int -> value <= filter.value
@@ -412,6 +497,7 @@ class KJsonQuery {
                     else -> false
                 }
             }
+
             "==" -> value == filter.value
             ">=" -> {
                 when {
@@ -422,6 +508,7 @@ class KJsonQuery {
                     else -> false
                 }
             }
+
             ">" -> {
                 when {
                     value is Int && filter.value is Int -> value > filter.value
@@ -431,6 +518,7 @@ class KJsonQuery {
                     else -> false
                 }
             }
+
             "!=" -> value != filter.value
             else -> false
         }
@@ -445,11 +533,13 @@ class KJsonQuery {
                 val stringValue = reader.nextString()
                 stringValue.toIntOrNull() ?: stringValue.toDoubleOrNull() ?: stringValue
             }
+
             JsonToken.BOOLEAN -> reader.nextBoolean()
             JsonToken.NULL -> {
                 reader.nextNull()
                 null
             }
+
             else -> {
                 reader.skipValue()
                 null
@@ -483,6 +573,7 @@ class KJsonQuery {
         val json = Gson().toJson(value)
         return JsonReader(InputStreamReader(json.byteInputStream(), StandardCharsets.UTF_8))
     }
+
 
     private fun createJsonReader(jsonFile: File) {
 
@@ -524,7 +615,7 @@ class KJsonQuery {
 
 
     fun filterObjectIntField(result: Any?, key: String): Int? {
-        if(result !is Map<*, *>){
+        if (result !is Map<*, *>) {
             return null
         }
         val resultObjects = result as Map<*, *>
@@ -532,7 +623,7 @@ class KJsonQuery {
     }
 
     fun filterObjectStringField(result: Any?, key: String): String? {
-        if(result !is Map<*, *>){
+        if (result !is Map<*, *>) {
             return null
         }
         val resultObjects = result as Map<*, *>
@@ -540,34 +631,17 @@ class KJsonQuery {
     }
 
     fun filterDoubleStringField(result: Any?, key: String): Double? {
-        if(result !is Map<*, *>){
+        if (result !is Map<*, *>) {
             return null
         }
         val resultObjects = result as Map<*, *>
         return resultObjects[key]?.toString()?.toDoubleOrNull()
     }
 
-    fun release() {
-        if(::mappedByteBuffer.isInitialized) {
-            try {
-                mappedByteBuffer.clear()
-            }catch (_: IOException) {}
-        }
-        if(::fileChannel.isInitialized) {
-            try {
-                fileChannel.close()
-            }catch (_: IOException) {}
-        }
+    private fun clearCache() {
+        queryCache.clear()
     }
 
-    /**
-     *  Rewind the buffer to the beginning for next gson reader reading again
-      */
-    fun rewindBuffer() {
-        if(::mappedByteBuffer.isInitialized) {
-            mappedByteBuffer.rewind()
-        }
-    }
 
     // Define path segment types for JSONPath parsing
     sealed class PathSegment {
