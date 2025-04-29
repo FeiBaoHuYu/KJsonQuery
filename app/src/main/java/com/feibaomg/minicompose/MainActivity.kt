@@ -1,5 +1,6 @@
 package com.feibaomg.minicompose
 
+import android.content.res.AssetManager
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -56,27 +57,30 @@ class MainActivity : ComponentActivity() {
         MainScope().launch(Dispatchers.IO) {
             if (file == null)
                 file = File(filesDir, "excel.json")
-//            assets.open("excel.json").copyTo(file.outputStream())
+
+            if (!File(getExternalFilesDir(null), "excel.json").exists()) {
+                assets.open("excel.json").copyTo(file!!.outputStream())
+            }
+
             val start = System.currentTimeMillis()
-            if (kjQuery == null)
-                kjQuery = KJsonQuery(file!!)
-            var result1 = kjQuery!!.query("$.IniTimer.data[*]")
+            kjQuery = KJsonQuery.getInstance(file!!.absolutePath)
+//            var result1 = kjQuery!!.query("$.IniTimer.data[*]")
 
-//            var result2 = kjQuery.query("$.IniDialogNewFun.data[?(@.dialogueId==439)]")
+            var result2 = kjQuery!!.query("$.IniDialogNewFun.data[?(@.dialogueId==439)]", limit = 1)
 
-//            var result3 = kjQuery.query("$.IniCatapult.data[?(@.roleId==10001)]")
+            var result3 = kjQuery!!.query("$.IniCatapult.data[?(@.roleId==10001)]", limit = 1)
 
-//            var result4 = kjQuery.query("$.IniDialogue.data[?(@.iD==1)]")
+            var result4 = kjQuery!!.query("$.IniTopicDialog.data[?(@.roleId==20001&&@.wallContent==10002)]", limit = 1)
 
-//            var result5 = kjQuery.query("$.IniWeatherContent.data[?(@.whType==2)]")
+            var result5 = kjQuery!!.query("$.IniWeatherContent.data[?(@.whType==2)]", limit = 1)
 
             Log.d("MainActivity", "query time: ${System.currentTimeMillis() - start}ms")
 
-            Log.d("MainActivity", "IniTimer: $result1")
-//            Log.d("MainActivity", "IniDialogNewFun: $result2")
-//            Log.d("MainActivity", "IniCatapult: $result3")
+            Log.d("MainActivity", "IniTimer: $result4")
+            Log.d("MainActivity", "IniDialogNewFun: $result2")
+            Log.d("MainActivity", "IniCatapult: $result3")
 //            Log.d("MainActivity", "IniDialogue: $result4")
-//            Log.d("MainActivity", "IniWeatherContent: $result5")
+            Log.d("MainActivity", "IniWeatherContent: $result5")
         }
     }
 }

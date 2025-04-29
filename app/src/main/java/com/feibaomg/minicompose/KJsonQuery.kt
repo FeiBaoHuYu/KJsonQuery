@@ -25,23 +25,60 @@ class KJsonQuery {
     private val queryCache = mutableMapOf<String, List<Any?>>()
     lateinit var jsonFile: File
 
-    constructor(filepath: String) {
+    companion object {
+        val sInstanceMap = mutableMapOf<String, KJsonQuery>()
+
+        fun getInstance(filepath: String): KJsonQuery {
+            synchronized(sInstanceMap) {
+                if (sInstanceMap[File(filepath).absolutePath] == null) {
+                    sInstanceMap[File(filepath).absolutePath] = KJsonQuery(filepath)
+                }
+            }
+            return sInstanceMap[File(filepath).absolutePath]!!
+        }
+
+        fun getInstance(file: File): KJsonQuery {
+            synchronized(sInstanceMap) {
+                if (sInstanceMap[file.absolutePath] == null) {
+                    sInstanceMap[file.absolutePath] = KJsonQuery(file)
+                }
+            }
+            return sInstanceMap[file.absolutePath]!!
+        }
+    }
+
+    private constructor(filepath: String) {
         createJsonReader(File(filepath))
     }
 
-    constructor(file: File) {
+    private constructor(file: File) {
         jsonFile = file
         createJsonReader(file)
     }
 
-    inner class QueryOption(val cacheResult: Boolean = true)
-
-    fun query(jsonPath: String = "$", option: QueryOption = QueryOption()): List<Any?> {
+    /**
+     * Queries the JSON file using a JSONPath expression and returns matching elements.
+     *
+     * This function searches through the JSON data using the provided JSONPath expression
+     * and returns all matching elements. Results are cached for improved performance on
+     * subsequent identical queries.
+     *
+     * NOTE: recommend to use a limit when dealing with large result sets to improve performance.
+     *
+     * @param jsonPath The JSONPath expression to query the JSON data. Defaults to "$" which
+     *                 represents the root of the JSON document.
+     * @param limit The maximum number of results to return. If set to a positive number,
+     *              only that many results will be returned. If set to -1 (default),
+     *              all matching results will be returned.
+     * @return A list containing all JSON elements that match the query, or an empty list
+     *         if no matches are found or an error occurs during processing.
+     */
+    fun query(jsonPath: String = "$", limit: Int = -1): List<Any?> {
         // Check cache first if enabled
-        if (option.cacheResult && queryCache.containsKey(jsonPath)) {
+        if (queryCache.containsKey(jsonPath)) {
             val cachedResult = queryCache[jsonPath]
             if (cachedResult != null) {
-                return cachedResult
+                return if (limit > 0) cachedResult.take(limit) else cachedResult
             }
         }
         try {
@@ -49,18 +86,15 @@ class KJsonQuery {
             val jsonReader = createJsonReader(mappedByteBuffer)
 
             // Query JSON with the provided JSONPath and custom filter
-            val results = queryJson(jsonReader, jsonPath)
+            val results = queryJson(jsonReader, jsonPath, limit)
 
             // Close resources
             jsonReader.close()
 
-            if (option.cacheResult){
-                queryCache[jsonPath] = results
-            }
             //rewind the buffer  for next query.
             mappedByteBuffer.rewind()
 
-            return results
+            return if (limit > 0) results.take(limit) else results
         } catch (e: Exception) {
             Log.e(TAG, "Error querying JSON: ", e)
             return emptyList()
@@ -68,8 +102,8 @@ class KJsonQuery {
     }
 
 
-    fun recreateFileBuffer(){
-        if(::jsonFile.isInitialized) {
+    fun recreateFileBuffer() {
+        if (::jsonFile.isInitialized) {
             createJsonReader(jsonFile)
         }
     }
@@ -106,6 +140,7 @@ class KJsonQuery {
     fun getCacheSize(): Int {
         return queryCache.size
     }
+
     /**
      *  Rewind the buffer to the beginning for next gson reader reading again
      */
@@ -115,12 +150,11 @@ class KJsonQuery {
         }
     }
 
-    private fun queryJson(reader: JsonReader, jsonPath: String): List<Any?> {
+    private fun queryJson(reader: JsonReader, jsonPath: String, limit: Int = -1): List<Any?> {
         val pathSegments = parseJsonPath(jsonPath)
         Log.d(TAG, "Path segments: $pathSegments")
-        val results = evaluatePath(reader, pathSegments, 0)
-        Log.d(TAG, "results: $results")
-        // Apply custom filter if provided
+        val results = evaluatePath(reader, pathSegments, 0, limit = limit)
+        Log.d(TAG, "results: ${if (results.size > 10) "${results.size} items" else results}")
         return results
     }
 
@@ -128,7 +162,8 @@ class KJsonQuery {
         reader: JsonReader,
         pathSegments: List<PathSegment>,
         index: Int,
-        customFilter: ((Any?) -> Boolean)? = null
+        customFilter: ((Any?) -> Boolean)? = null,
+        limit: Int = -1
     ): List<Any?> {
         if (index >= pathSegments.size) {
             val value = readValue(reader)
@@ -148,20 +183,30 @@ class KJsonQuery {
 
                 when (currentSegment) {
                     is PathSegment.Property -> {
-                        while (reader.hasNext()) {
+                        while (reader.hasNext() && (limit <= 0 || results.size < limit)) {
                             val name = reader.nextName()
                             if (name == currentSegment.name) {
-                                results.addAll(evaluatePath(reader, pathSegments, index + 1, customFilter))
+                                results.addAll(evaluatePath(reader, pathSegments, index + 1, customFilter, limit - results.size))
                             } else {
                                 reader.skipValue()
                             }
                         }
+                        // Skip remaining properties if we've reached the limit
+                        while (reader.hasNext() && limit > 0 && results.size >= limit) {
+                            reader.nextName()
+                            reader.skipValue()
+                        }
                     }
 
                     is PathSegment.AllElements -> {
-                        while (reader.hasNext()) {
+                        while (reader.hasNext() && (limit <= 0 || results.size < limit)) {
                             reader.nextName()
-                            results.addAll(evaluatePath(reader, pathSegments, index + 1, customFilter))
+                            results.addAll(evaluatePath(reader, pathSegments, index + 1, customFilter, limit - results.size))
+                        }
+                        // Skip remaining properties if we've reached the limit
+                        while (reader.hasNext() && limit > 0 && results.size >= limit) {
+                            reader.nextName()
+                            reader.skipValue()
                         }
                     }
 
@@ -185,7 +230,7 @@ class KJsonQuery {
                     is PathSegment.ArrayIndex -> {
                         while (reader.hasNext()) {
                             if (arrayIndex == currentSegment.index) {
-                                results.addAll(evaluatePath(reader, pathSegments, index + 1, customFilter))
+                                results.addAll(evaluatePath(reader, pathSegments, index + 1, customFilter, limit))
                             } else {
                                 reader.skipValue()
                             }
@@ -194,25 +239,35 @@ class KJsonQuery {
                     }
 
                     is PathSegment.AllElements -> {
-                        while (reader.hasNext()) {
-                            results.addAll(evaluatePath(reader, pathSegments, index + 1, customFilter))
+                        while (reader.hasNext() && (limit <= 0 || results.size < limit)) {
+                            results.addAll(evaluatePath(reader, pathSegments, index + 1, customFilter, limit - results.size))
+                            arrayIndex++
+                        }
+                        // Skip remaining elements if we've reached the limit
+                        while (reader.hasNext() && limit > 0 && results.size >= limit) {
+                            reader.skipValue()
                             arrayIndex++
                         }
                     }
 
                     is PathSegment.Filter -> {
-                        while (reader.hasNext()) {
+                        while (reader.hasNext() && (limit <= 0 || results.size < limit)) {
                             if (reader.peek() == JsonToken.BEGIN_OBJECT) {
                                 // We need to check if this object matches the filter
                                 val objectValue = readObject(reader)
                                 if (objectValue is Map<*, *> && matchesFilter(objectValue, currentSegment)) {
                                     // If it matches, we need to evaluate the rest of the path on this object
                                     val tempReader = createTempJsonReader(objectValue)
-                                    results.addAll(evaluatePath(tempReader, pathSegments, index + 1, customFilter))
+                                    results.addAll(evaluatePath(tempReader, pathSegments, index + 1, customFilter, limit - results.size))
                                 }
                             } else {
                                 reader.skipValue()
                             }
+                            arrayIndex++
+                        }
+                        // Skip remaining elements if we've reached the limit
+                        while (reader.hasNext() && limit > 0 && results.size >= limit) {
+                            reader.skipValue()
                             arrayIndex++
                         }
                     }
@@ -238,6 +293,7 @@ class KJsonQuery {
         return results
     }
 
+    //"$.IniTopicDialog.data[?(@.roleId==20001&@.dialogueId==439)]"
     private fun parseJsonPath(jsonPath: String): List<PathSegment> {
         val segments = mutableListOf<PathSegment>()
 
@@ -330,44 +386,65 @@ class KJsonQuery {
         if (filter.startsWith("(") && filter.endsWith(")")) {
             val expression = filter.substring(1, filter.length - 1).trim()
 
-            // Look for comparison operators
-            val operators = listOf("<", "<=", "==", ">=", ">", "!=")
-            for (op in operators) {
-                if (expression.contains(op)) {
-                    val parts = expression.split(op, limit = 2)
-                    val left = parts[0].trim()
-                    val right = parts[1].trim()
+            // Determine the logical operator (default to AND if none is found)
+            val logicalOperator = when {
+                expression.contains("&&") -> "&&"
+                expression.contains("||") -> "||"
+                else -> "&&" // Default to AND for single conditions
+            }
 
-                    val property = if (left.startsWith("@.")) {
-                        left.substring(2)
-                    } else {
-                        left
-                    }
+            // Split the expression by the logical operator
+            val conditionStrings = when (logicalOperator) {
+                "&&" -> expression.split("&&")
+                "||" -> expression.split("||")
+                else -> listOf(expression)
+            }
 
-                    val value = try {
-                        when {
-                            right.toIntOrNull() != null -> right.toInt()
-                            right.toDoubleOrNull() != null -> right.toDouble()
-                            right == "true" || right == "false" -> right.toBoolean()
-                            right.startsWith("'") && right.endsWith("'") ->
-                                right.substring(1, right.length - 1)
+            val conditions = conditionStrings.mapNotNull { conditionStr ->
+                parseCondition(conditionStr.trim())
+            }
 
-                            right.startsWith("\"") && right.endsWith("\"") ->
-                                right.substring(1, right.length - 1)
+            return PathSegment.Filter(conditions, logicalOperator)
+        }
 
-                            else -> right
-                        }
-                    } catch (e: Exception) {
-                        right
-                    }
+        // Default to an empty filter if we can't parse it
+        return PathSegment.Filter(emptyList())
+    }
+    private fun parseCondition(conditionStr: String): PathSegment.Filter.Condition? {
+        // Look for comparison operators
+        val operators = listOf("<", "<=", "==", ">=", ">", "!=")
+        for (op in operators) {
+            if (conditionStr.contains(op)) {
+                val parts = conditionStr.split(op, limit = 2)
+                val left = parts[0].trim()
+                val right = parts[1].trim()
 
-                    return PathSegment.Filter(property, op, value)
+                val property = if (left.startsWith("@.")) {
+                    left.substring(2)
+                } else {
+                    left
                 }
+
+                val value = try {
+                    when {
+                        right.toIntOrNull() != null -> right.toInt()
+                        right.toDoubleOrNull() != null -> right.toDouble()
+                        right == "true" || right == "false" -> right.toBoolean()
+                        right.startsWith("'") && right.endsWith("'") ->
+                            right.substring(1, right.length - 1)
+                        right.startsWith("\"") && right.endsWith("\"") ->
+                            right.substring(1, right.length - 1)
+                        else -> right
+                    }
+                } catch (e: Exception) {
+                    right
+                }
+
+                return PathSegment.Filter.Condition(property, op, value)
             }
         }
 
-        // Default to a no-op filter if we can't parse it
-        return PathSegment.Filter("", "==", "")
+        return null
     }
 
     private fun evaluatePath(reader: JsonReader, pathSegments: List<PathSegment>, index: Int): List<Any?> {
@@ -475,51 +552,63 @@ class KJsonQuery {
     }
 
     private fun matchesFilter(obj: Map<*, *>, filter: PathSegment.Filter): Boolean {
-        val value = obj[filter.property] ?: return false
+        if (filter.conditions.isEmpty()) return false
 
-        return when (filter.operator) {
+        return when (filter.logicalOperator) {
+            "&&" -> filter.conditions.all { matchesCondition(obj, it) }
+            "||" -> filter.conditions.any { matchesCondition(obj, it) }
+            else -> false
+        }
+    }
+
+    private fun matchesCondition(obj: Map<*, *>, condition: PathSegment.Filter.Condition): Boolean {
+        val value = obj[condition.property] ?: return false
+
+        return when (condition.operator) {
             "<" -> {
                 when {
-                    value is Int && filter.value is Int -> value < filter.value
-                    value is Double && filter.value is Double -> value < filter.value
-                    value is Int && filter.value is Double -> value < filter.value
-                    value is Double && filter.value is Int -> value < filter.value.toDouble()
+                    value is Int && condition.value is Int -> value < condition.value
+                    value is Double && condition.value is Double -> value < condition.value
+                    value is Int && condition.value is Double -> value < condition.value
+                    value is Double && condition.value is Int -> value < condition.value.toDouble()
                     else -> false
                 }
             }
 
             "<=" -> {
                 when {
-                    value is Int && filter.value is Int -> value <= filter.value
-                    value is Double && filter.value is Double -> value <= filter.value
-                    value is Int && filter.value is Double -> value <= filter.value
-                    value is Double && filter.value is Int -> value <= filter.value.toDouble()
+                    value is Int && condition.value is Int -> value <= condition.value
+                    value is Double && condition.value is Double -> value <= condition.value
+                    value is Int && condition.value is Double -> value <= condition.value
+                    value is Double && condition.value is Int -> value <= condition.value.toDouble()
                     else -> false
                 }
             }
 
-            "==" -> value == filter.value
+            "==" -> value == condition.value
+
             ">=" -> {
                 when {
-                    value is Int && filter.value is Int -> value >= filter.value
-                    value is Double && filter.value is Double -> value >= filter.value
-                    value is Int && filter.value is Double -> value >= filter.value
-                    value is Double && filter.value is Int -> value >= filter.value.toDouble()
+                    value is Int && condition.value is Int -> value >= condition.value
+                    value is Double && condition.value is Double -> value >= condition.value
+                    value is Int && condition.value is Double -> value >= condition.value
+                    value is Double && condition.value is Int -> value >= condition.value.toDouble()
                     else -> false
                 }
             }
 
             ">" -> {
                 when {
-                    value is Int && filter.value is Int -> value > filter.value
-                    value is Double && filter.value is Double -> value > filter.value
-                    value is Int && filter.value is Double -> value > filter.value
-                    value is Double && filter.value is Int -> value > filter.value.toDouble()
+                    value is Int && condition.value is Int -> value > condition.value
+                    value is Double && condition.value is Double -> value > condition.value
+                    value is Int && condition.value is Double -> value > condition.value
+                    value is Double && condition.value is Int -> value > condition.value.toDouble()
                     else -> false
                 }
             }
 
-            "!=" -> value != filter.value
+            "!=" -> value != condition.value
+
             else -> false
         }
     }
@@ -643,11 +732,46 @@ class KJsonQuery {
     }
 
 
-    // Define path segment types for JSONPath parsing
+    /**
+     * Defines the different types of path segments used in JSONPath parsing.
+     * These segments represent the various components that can appear in a JSONPath expression,
+     * allowing for navigation through JSON structures.
+     */
     sealed class PathSegment {
+        /**
+         * Represents a property (key) in a JSON object.
+         *
+         * @property name The name of the property to match in the JSON object.
+         */
         data class Property(val name: String) : PathSegment()
+
+        /**
+         * Represents a specific index in a JSON array.
+         *
+         * @property index The zero-based index position to access in the array.
+         */
         data class ArrayIndex(val index: Int) : PathSegment()
-        data class Filter(val property: String, val operator: String, val value: Any?) : PathSegment()
+
+        /**
+         * Represents a filter condition to apply on JSON objects.
+         *
+         * @property conditions List of individual conditions to evaluate
+         * @property logicalOperator The logical operator to combine conditions ("&&" or "||")
+         */
+        data class Filter(val conditions: List<Condition>, val logicalOperator: String = "&&") : PathSegment() {
+            /**
+             * Represents a single condition within a filter
+             */
+            data class Condition(
+                val property: String,
+                val operator: String,
+                val value: Any?
+            )
+        }
+        /**
+         * Represents a wildcard that matches all elements in an array or all properties in an object.
+         * Used with the "*" notation in JSONPath.
+         */
         object AllElements : PathSegment()
     }
 }
