@@ -64,23 +64,25 @@ class MainActivity : ComponentActivity() {
 
             val start = System.currentTimeMillis()
             kjQuery = KJsonQuery.getInstance(file!!.absolutePath)
-//            var result1 = kjQuery!!.query("$.IniTimer.data[*]")
+            var result1 = kjQuery!!.cacheArrayField("$.IniTimer.data")
 
-            var result2 = kjQuery!!.query("$.IniDialogNewFun.data[?(@.dialogueId==439)]", limit = 1)
+            var result1a = kjQuery!!.query("$.IniTimer.data[?(@.fixEventID==3)]", limit = 1)
 
-            var result3 = kjQuery!!.query("$.IniCatapult.data[?(@.roleId==10001)]", limit = 1)
-
-            var result4 = kjQuery!!.query("$.IniTopicDialog.data[?(@.roleId==20001&&@.wallContent==10002)]", limit = 1)
-
-            var result5 = kjQuery!!.query("$.IniWeatherContent.data[?(@.whType==2)]", limit = 1)
+//            var result2 = kjQuery!!.query("$.IniDialogNewFun.data[?(@.dialogueId==439)]", limit = 1)
+//
+//            var result3 = kjQuery!!.query("$.IniCatapult.data[?(@.roleId==10001)]", limit = 1)
+//
+//            var result4 = kjQuery!!.query("$.IniTopicDialog.data[?(@.roleId==20001&&@.wallContent==10002)]", limit = 1)
+//
+//            var result5 = kjQuery!!.query("$.IniWeatherContent.data[?(@.whType==2)]", limit = 1)
 
             Log.d("MainActivity", "query time: ${System.currentTimeMillis() - start}ms")
 
-            Log.d("MainActivity", "IniTimer: $result4")
-            Log.d("MainActivity", "IniDialogNewFun: $result2")
-            Log.d("MainActivity", "IniCatapult: $result3")
+            Log.d("MainActivity", "IniTimer: $result1a")
+//            Log.d("MainActivity", "IniDialogNewFun: $result2")
+//            Log.d("MainActivity", "IniCatapult: $result3")
 //            Log.d("MainActivity", "IniDialogue: $result4")
-            Log.d("MainActivity", "IniWeatherContent: $result5")
+//            Log.d("MainActivity", "IniWeatherContent: $result5")
         }
     }
 }

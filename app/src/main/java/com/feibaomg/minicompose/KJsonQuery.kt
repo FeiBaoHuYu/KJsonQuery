@@ -22,7 +22,9 @@ private const val TAG = "KJsonQuery"
 class KJsonQuery {
     private lateinit var fileChannel: FileChannel
     private lateinit var mappedByteBuffer: MappedByteBuffer
-    private val queryCache = mutableMapOf<String, List<Any?>>()
+
+    // Add a dedicated cache for array fields
+    private val arrayFieldsCache = mutableMapOf<String, List<Any?>>()
     lateinit var jsonFile: File
 
     companion object {
@@ -48,12 +50,12 @@ class KJsonQuery {
     }
 
     private constructor(filepath: String) {
-        createJsonReader(File(filepath))
+        loadJsonToMappedByteBuffer(File(filepath))
     }
 
     private constructor(file: File) {
         jsonFile = file
-        createJsonReader(file)
+        loadJsonToMappedByteBuffer(file)
     }
 
     /**
@@ -62,6 +64,9 @@ class KJsonQuery {
      * This function searches through the JSON data using the provided JSONPath expression
      * and returns all matching elements. Results are cached for improved performance on
      * subsequent identical queries.
+     *
+     * If the query is filtering an array that's already cached (e.g., "$.users[@.id=1]"),
+     * it will use the cached array instead of reading from the file again.
      *
      * NOTE: recommend to use a limit when dealing with large result sets to improve performance.
      *
@@ -74,14 +79,27 @@ class KJsonQuery {
      *         if no matches are found or an error occurs during processing.
      */
     fun query(jsonPath: String = "$", limit: Int = -1): List<Any?> {
-        // Check cache first if enabled
-        if (queryCache.containsKey(jsonPath)) {
-            val cachedResult = queryCache[jsonPath]
-            if (cachedResult != null) {
-                return if (limit > 0) cachedResult.take(limit) else cachedResult
+        // Check if this is a filter on a cached array
+        val arrayPathAndFilter = extractArrayPathAndFilter(jsonPath)
+        if (arrayPathAndFilter != null) {
+            val (arrayPath, filterExpression) = arrayPathAndFilter
+            if (arrayFieldsCache.containsKey(arrayPath)) {
+                Log.d(TAG, "Using cached array for filtered query: $arrayPath")
+                val cachedArray = arrayFieldsCache[arrayPath]!!
+
+                // Apply the filter to the cached array
+                val results = applyFilterToArray(cachedArray, filterExpression, limit)
+
+                return results
             }
         }
         try {
+            if (mappedByteBuffer.capacity() == 0) {
+                loadJsonToMappedByteBuffer(jsonFile)
+                if (mappedByteBuffer.capacity() == 0) {
+                    return emptyList()
+                }
+            }
             // Create a Gson JsonReader for streaming parsing
             val jsonReader = createJsonReader(mappedByteBuffer)
 
@@ -101,10 +119,102 @@ class KJsonQuery {
         }
     }
 
+    /**
+     * Extracts the base array path and filter expression from a JSONPath
+     * For example, "$.users[?(@.id=1)]" would return ("$.users", "(@.id=1)")
+     */
+    private fun extractArrayPathAndFilter(jsonPath: String): Pair<String, String>? {
+        // Simple pattern matching for common filter patterns
+        val paths = jsonPath.split("[")
+        if (paths.size != 2) {
+            return null
+        }
+        val arrayPath = paths[0]
+        val filterExpression = paths[1].substring(1, paths[1].length - 1) // Remove the trailing '[?]'
+        Log.d(TAG, "filterExpression: $filterExpression")
+        return Pair(arrayPath, filterExpression)
+    }
+
+    /**
+     * Applies a filter expression to a cached array
+     */
+    private fun applyFilterToArray(array: List<Any?>, filterExpression: String, limit: Int): List<Any?> {
+        val filter = parseFilter(filterExpression)
+        val results = mutableListOf<Any?>()
+        Log.d(TAG, "applyFilterToArray: $filter")
+        for (item in array) {
+            if (item is Map<*, *> && matchesFilter(item as Map<*, *>, filter)) {
+                results.add(item)
+                if (limit > 0 && results.size >= limit) {
+                    break
+                }
+            }
+        }
+
+        return results
+    }
+
+    /**
+     * Caches an array field from the JSON for faster subsequent filtered queries.
+     *
+     * @param arrayPath The JSONPath to the array (e.g., "$.users")
+     * @return The cached array or null if the path doesn't point to an array
+     */
+    fun cacheArrayField(arrayPath: String, cacheKey:String? = null): List<Any?>? {
+        // Check if already cached
+        if (arrayFieldsCache.containsKey(arrayPath)) {
+            return arrayFieldsCache[arrayPath]
+        }
+
+        // Query the array
+        val result = query(arrayPath)
+        val cacheKey = cacheKey?: arrayPath
+        // Only cache if it's actually an array (list)
+        if (result.size == 1 && result[0] is List<*>) {
+            val arrayResult = result[0] as List<*>
+            arrayFieldsCache[cacheKey] = arrayResult
+            Log.d(TAG, "Cached array field: $arrayPath with ${arrayResult.size} items")
+            return arrayResult
+        } else if (result.isNotEmpty()) {
+            // If the result itself is a list of objects, cache it directly
+            arrayFieldsCache[cacheKey] = result
+            Log.d(TAG, "Cached array field: $arrayPath with ${result.size} items")
+            return result
+        }
+
+        Log.d(TAG, "Path does not point to an array: $arrayPath")
+        return null
+    }
+
+    /**
+     * Checks if an array field is cached
+     *
+     * @param arrayPath The JSONPath to check
+     * @return true if the array is cached
+     */
+    fun isArrayFieldCached(arrayPath: String): Boolean {
+        return arrayFieldsCache.containsKey(arrayPath)
+    }
+
+    /**
+     * Invalidates a cached array field
+     *
+     * @param arrayPath The JSONPath to invalidate
+     */
+    fun invalidateArrayCache(arrayPath: String) {
+        arrayFieldsCache.remove(arrayPath)
+    }
+
+    /**
+     * Clears all cached array fields
+     */
+    fun clearArrayCache() {
+        arrayFieldsCache.clear()
+    }
 
     fun recreateFileBuffer() {
         if (::jsonFile.isInitialized) {
-            createJsonReader(jsonFile)
+            loadJsonToMappedByteBuffer(jsonFile)
         }
     }
 
@@ -130,16 +240,9 @@ class KJsonQuery {
     }
 
     fun invalidateCache(jsonPath: String) {
-        queryCache.remove(jsonPath)
+        arrayFieldsCache.remove(jsonPath)
     }
 
-    /**
-     * Get the number of cached queries
-     * @return the number of queries in the cache
-     */
-    fun getCacheSize(): Int {
-        return queryCache.size
-    }
 
     /**
      *  Rewind the buffer to the beginning for next gson reader reading again
@@ -399,6 +502,7 @@ class KJsonQuery {
                 "||" -> expression.split("||")
                 else -> listOf(expression)
             }
+            Log.d(TAG, "parseFilter: $conditionStrings")
 
             val conditions = conditionStrings.mapNotNull { conditionStr ->
                 parseCondition(conditionStr.trim())
@@ -410,6 +514,7 @@ class KJsonQuery {
         // Default to an empty filter if we can't parse it
         return PathSegment.Filter(emptyList())
     }
+
     private fun parseCondition(conditionStr: String): PathSegment.Filter.Condition? {
         // Look for comparison operators
         val operators = listOf("<", "<=", "==", ">=", ">", "!=")
@@ -432,8 +537,10 @@ class KJsonQuery {
                         right == "true" || right == "false" -> right.toBoolean()
                         right.startsWith("'") && right.endsWith("'") ->
                             right.substring(1, right.length - 1)
+
                         right.startsWith("\"") && right.endsWith("\"") ->
                             right.substring(1, right.length - 1)
+
                         else -> right
                     }
                 } catch (e: Exception) {
@@ -664,7 +771,7 @@ class KJsonQuery {
     }
 
 
-    private fun createJsonReader(jsonFile: File) {
+    private fun loadJsonToMappedByteBuffer(jsonFile: File) {
 
         if (!jsonFile.exists()) {
             println("File does not exist: $jsonFile")
@@ -728,7 +835,7 @@ class KJsonQuery {
     }
 
     private fun clearCache() {
-        queryCache.clear()
+        arrayFieldsCache.clear()
     }
 
 
@@ -768,6 +875,7 @@ class KJsonQuery {
                 val value: Any?
             )
         }
+
         /**
          * Represents a wildcard that matches all elements in an array or all properties in an object.
          * Used with the "*" notation in JSONPath.
