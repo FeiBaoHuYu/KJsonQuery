@@ -77,7 +77,7 @@ class KJsonQuery {
      * @return 包含所有匹配查询的JSON元素的列表，如果没有找到匹配项
      *         或处理过程中发生错误，则返回空列表。
      */
-    fun query(jsonPath: String = "$", limit: Int = -1): List<Any?> {
+    fun query(jsonPath: String = "$", limit: Int = -1, filter: ((Any?) -> Boolean)? = null): List<Any?> {
         // Check if this is a filter on a cached array
         val result = queryInCachedArray(jsonPath, limit)
         if (result != null) {
@@ -96,16 +96,20 @@ class KJsonQuery {
             jsonReader = createJsonReader(mappedByteBuffer)
 
             // Query JSON with the provided JSONPath and custom filter
-            val results = queryJson(jsonReader, jsonPath, limit)
+            var results = queryJson(jsonReader, jsonPath, limit)
 
-            //rewind the buffer  for next query.
             mappedByteBuffer.rewind()
 
-            val resultList = if (limit > 0) results.take(limit) else results
-            if (resultList.size == 1 && resultList[0] is List<*>) {
-                return resultList[0] as List<Any?>
+            if (results.size == 1 && results[0] is List<*>) {
+                results = results[0] as List<Any?>
             }
-            return resultList
+
+            if (filter != null) {
+                results = results.filter(filter)
+            }
+
+            return if (limit > 0) results.take(limit) else results
+
         } catch (e: Exception) {
             Log.e(TAG, "Error querying JSON: ", e)
             return emptyList()
@@ -1141,7 +1145,6 @@ class KJsonQuery {
         )
         return JsonReader(reader)
     }
-
 
 
     /**
