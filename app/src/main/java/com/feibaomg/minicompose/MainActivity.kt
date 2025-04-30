@@ -1,6 +1,5 @@
 package com.feibaomg.minicompose
 
-import android.content.res.AssetManager
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -32,12 +31,15 @@ class MainActivity : ComponentActivity() {
             MiniComposeTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     Column {
-                        Button(modifier = Modifier.padding(innerPadding), onClick = { testJsonQuery() }) {
-                            Text(text = "testJsonQuery")
+                        Button(modifier = Modifier.padding(innerPadding), onClick = { initJsonQuery() }) {
+                            Text(text = "init KJsonQuery")
                         }
                         Spacer(modifier = Modifier.height(10.dp))
-                        Button(modifier = Modifier.padding(innerPadding), onClick = { releaseJsonQuery() }) {
-                            Text(text = "releaseJsonQuery")
+                        Button(modifier = Modifier.padding(innerPadding), onClick = { testJsonQuery() }) {
+                            Text(text = "test Query")
+                        }
+                        Button(modifier = Modifier.padding(innerPadding), onClick = { releaseFileContentCache() }) {
+                            Text(text = "release JsonQuery")
                         }
                     }
                 }
@@ -45,28 +47,42 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun releaseJsonQuery() {
-        kjQuery?.release()
+    private fun releaseFileContentCache() {
+        kjQuery?.releaseFileBuffer()
+
+        System.gc()
     }
 
     var file: File? = null
     var kjQuery: KJsonQuery? = null
 
-    private fun testJsonQuery() {
+    private fun initJsonQuery() {
 
         MainScope().launch(Dispatchers.IO) {
+            val fileName = "address.json"
             if (file == null)
-                file = File(filesDir, "excel.json")
+                file = File(filesDir, fileName)
 
-            if (!File(getExternalFilesDir(null), "excel.json").exists()) {
-                assets.open("excel.json").copyTo(file!!.outputStream())
+            if (!File(getExternalFilesDir(null), fileName).exists()) {
+                assets.open(fileName).copyTo(file!!.outputStream())
             }
+            kjQuery = KJsonQuery.getInstance(file!!.absolutePath)
+//            kjQuery!!.cacheArrayField("$.IniTimer.data")
+        }
+    }
+
+    private fun testJsonQuery() {
+        if (kjQuery == null) {
+            Log.d("MainActivity", "kjQuery is null")
+            return
+        }
+
+        MainScope().launch(Dispatchers.IO) {
 
             val start = System.currentTimeMillis()
-            kjQuery = KJsonQuery.getInstance(file!!.absolutePath)
-            var result1 = kjQuery!!.cacheArrayField("$.IniTimer.data")
 
-            var result1a = kjQuery!!.query("$.IniTimer.data[?(@.fixEventID==3)]", limit = 1)
+//            var result1a = kjQuery!!.query("$.IniTimer.data[?((@.fixEventID==3 && ))]", limit = 1)
+            var result1a = kjQuery!!.query("""$.phoneNumbers[?((@.number=="0123-4567-8910"&&@.type=="home2")||@.type=="home")]""")
 
 //            var result2 = kjQuery!!.query("$.IniDialogNewFun.data[?(@.dialogueId==439)]", limit = 1)
 //
@@ -77,8 +93,6 @@ class MainActivity : ComponentActivity() {
 //            var result5 = kjQuery!!.query("$.IniWeatherContent.data[?(@.whType==2)]", limit = 1)
 
             Log.d("MainActivity", "query time: ${System.currentTimeMillis() - start}ms")
-
-            Log.d("MainActivity", "IniTimer: $result1a")
 //            Log.d("MainActivity", "IniDialogNewFun: $result2")
 //            Log.d("MainActivity", "IniCatapult: $result3")
 //            Log.d("MainActivity", "IniDialogue: $result4")

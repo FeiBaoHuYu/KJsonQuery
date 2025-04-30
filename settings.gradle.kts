@@ -19,6 +19,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "MiniCompose"
+rootProject.name = "KJsonQuery"
 include(":app")
  
