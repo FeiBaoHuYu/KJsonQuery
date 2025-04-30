@@ -1,4 +1,4 @@
-package com.feibaomg.minicompose.ui.theme
+package com.feibaomg.foundation.ui.theme
 
 import android.app.Activity
 import android.os.Build

@@ -1,4 +1,4 @@
-package com.feibaomg.minicompose
+package com.feibaomg.foundation
 
 import android.util.JsonReader
 import android.util.JsonToken
@@ -300,7 +300,7 @@ class KJsonQuery {
         val pathSegments = parseJsonPath(jsonPath)
         Log.d(TAG, "jsonpath segments: $pathSegments")
         val results = evaluatePath(reader, pathSegments, 0, limit = limit)
-        Log.d(TAG, "jsonPath=$jsonPath, results=${if (results.size > 10) "${results.size} items" else results}")
+        Log.d(TAG, "\njsonPath=$jsonPath\nresults=${if (results.size > 10) "${results.size} items" else results}")
         return results
     }
 
@@ -539,48 +539,51 @@ class KJsonQuery {
     }
 
     /**
-     * Parses a complex expression that may contain nested parentheses and logical operators
-     * eg: (@.number=="0123-4567-8910"&&@.type=="home2")||@.type=="home"
+     * 解析复杂表达式，支持嵌套括号和逻辑运算符
+     * 例如: (@.category=="数学"&&@.price>50)||(@.category=="历史"&&@.price<10)
      */
     private fun parseComplexExpression(expression: String): PathSegment.Filter {
-        // Handle nested parentheses by tracking depth
+        // 处理表达式规范化
         val normalizedExpression = normalizeExpression(expression)
 
-        // After normalization, check for top-level OR operators
+        // 检查顶层OR运算符
         if (hasTopLevelOperator(normalizedExpression, "||")) {
             val parts = splitByTopLevelOperator(normalizedExpression, "||")
             val conditions = mutableListOf<PathSegment.Filter.Condition>()
+            val subFilters = mutableListOf<PathSegment.Filter>()
 
             for (part in parts) {
-                // Each part might be a complex expression or a simple condition
+                // 每个部分可能是复杂表达式或简单条件
                 val subFilter = parseComplexExpression(part.trim())
-                conditions.addAll(subFilter.conditions)
+                subFilters.add(subFilter)
             }
 
-            return PathSegment.Filter(conditions, "||")
+            // 创建OR过滤器，包含所有子过滤器
+            return PathSegment.Filter(emptyList(), "||", subFilters)
         }
 
-        // If no top-level OR, check for top-level AND
+        // 检查顶层AND运算符
         if (hasTopLevelOperator(normalizedExpression, "&&")) {
             val parts = splitByTopLevelOperator(normalizedExpression, "&&")
             val conditions = mutableListOf<PathSegment.Filter.Condition>()
+            val subFilters = mutableListOf<PathSegment.Filter>()
 
             for (part in parts) {
-                // Each part might be a complex expression or a simple condition
+                // 每个部分可能是复杂表达式或简单条件
                 val subFilter = parseComplexExpression(part.trim())
-                conditions.addAll(subFilter.conditions)
+                subFilters.add(subFilter)
             }
 
-            return PathSegment.Filter(conditions, "&&")
+            // 创建AND过滤器，包含所有子过滤器
+            return PathSegment.Filter(emptyList(), "&&", subFilters)
         }
 
-        // If no logical operators at this level, it might be a parenthesized expression or a simple condition
+        // 如果表达式被括号包围，递归解析内部表达式
         if (normalizedExpression.startsWith("(") && normalizedExpression.endsWith(")")) {
-            // Recursively parse the inner expression
             return parseComplexExpression(normalizedExpression.substring(1, normalizedExpression.length - 1).trim())
         }
 
-        // It's a simple condition
+        // 处理简单条件
         val condition = parseCondition(normalizedExpression)
         return if (condition != null) {
             PathSegment.Filter(listOf(condition), "&&")
@@ -592,14 +595,6 @@ class KJsonQuery {
 
     /**
      * 规范化表达式，处理嵌套括号
-     *
-     * 这个方法的主要目的是：
-     * 1. 检查表达式是否有平衡的括号
-     * 2. 处理可能的多余括号
-     * 3. 确保表达式格式正确，便于后续解析
-     *
-     * @param expression 需要规范化的表达式
-     * @return 规范化后的表达式
      */
     private fun normalizeExpression(expression: String): String {
         // 检查括号是否平衡
@@ -610,22 +605,19 @@ class KJsonQuery {
                 ')' -> {
                     depth--
                     if (depth < 0) {
-                        val errorMsg = "表达式中有多余的左括号: $expression"
-                        Log.w(TAG, errorMsg)
-                        throw InvalidParameterException(errorMsg)
+                        Log.w(TAG, "不平衡的括号在表达式中: $expression")
+                        return expression
                     }
                 }
             }
         }
 
         if (depth > 0) {
-            val errorMsg = "表达式中有多余的左括号: $expression"
-            Log.w(TAG, errorMsg)
-            throw InvalidParameterException(errorMsg)
+            Log.w(TAG, "不平衡的括号在表达式中: $expression")
+            return expression
         }
 
         // 处理表达式两端可能有的多余括号
-        // 例如: ((a==1)) -> (a==1)
         var normalized = expression.trim()
         while (normalized.startsWith("(") && normalized.endsWith(")")) {
             // 检查这对括号是否是匹配的外层括号
@@ -638,8 +630,6 @@ class KJsonQuery {
                     ')' -> {
                         innerDepth--
                         if (innerDepth < 0) {
-                            // 这意味着第一个左括号与中间的某个右括号匹配
-                            // 而不是与最后一个右括号匹配
                             isOuterPair = false
                             break
                         }
@@ -647,18 +637,16 @@ class KJsonQuery {
                 }
             }
 
-            if (isOuterPair) {
-                // 如果是外层括号对，则移除它们
+            if (isOuterPair && innerDepth == 0) {
                 normalized = normalized.substring(1, normalized.length - 1).trim()
             } else {
-                // 如果不是外层括号对，则保持不变
                 break
             }
         }
 
-        Log.d(TAG, "规范化表达式: 【$expression】 => 【$normalized】")
         return normalized
     }
+
 
     /**
      * ## 检查表达式中是否存在顶层的逻辑运算符
@@ -689,9 +677,8 @@ class KJsonQuery {
             when {
                 expression[i] == '(' -> depth++
                 expression[i] == ')' -> depth--
-                depth == 0
-                        && i + operator.length <= expression.length
-                        && expression.substring(i, i + operator.length) == operator -> {
+                depth == 0 && i + operator.length <= expression.length &&
+                        expression.substring(i, i + operator.length) == operator -> {
                     return true
                 }
             }
@@ -702,7 +689,7 @@ class KJsonQuery {
     }
 
     /**
-     * Splits an expression by a top-level logical operator (not inside parentheses)
+     * 按顶层逻辑运算符分割表达式
      */
     private fun splitByTopLevelOperator(expression: String, operator: String): List<String> {
         val result = mutableListOf<String>()
@@ -718,13 +705,13 @@ class KJsonQuery {
                         expression.substring(i, i + operator.length) == operator -> {
                     result.add(expression.substring(start, i).trim())
                     start = i + operator.length
-                    i += operator.length - 1 // Skip the operator
+                    i += operator.length - 1 // 跳过运算符
                 }
             }
             i++
         }
 
-        // Add the last part
+        // 添加最后一部分
         if (start < expression.length) {
             result.add(expression.substring(start).trim())
         }
@@ -905,29 +892,27 @@ class KJsonQuery {
         return results
     }
 
+    /**
+     * 检查对象是否匹配过滤器
+     */
     private fun matchesFilter(obj: Map<*, *>, filter: PathSegment.Filter): Boolean {
-        if (filter.conditions.isEmpty()) return false
+        // 如果没有条件和子过滤器，返回false
+        if (filter.conditions.isEmpty() && filter.subFilters.isEmpty()) return false
 
-        // Log the filter for debugging
-        Log.d(TAG, "Matching filter: ${filter.logicalOperator} with ${filter.conditions.size} conditions")
+        // 处理子过滤器
+        if (filter.subFilters.isNotEmpty()) {
+            return when (filter.logicalOperator) {
+                "&&" -> filter.subFilters.all { matchesFilter(obj, it) }
+                "||" -> filter.subFilters.any { matchesFilter(obj, it) }
+                else -> false
+            }
+        }
 
+        // 处理简单条件
         return when (filter.logicalOperator) {
-            "&&" -> {
-                val result = filter.conditions.all { matchesCondition(obj, it) }
-                Log.d(TAG, "AND result: $result")
-                result
-            }
-
-            "||" -> {
-                val result = filter.conditions.any { matchesCondition(obj, it) }
-                Log.d(TAG, "OR result: $result")
-                result
-            }
-
-            else -> {
-                Log.w(TAG, "Unknown logical operator: ${filter.logicalOperator}")
-                false
-            }
+            "&&" -> filter.conditions.all { matchesCondition(obj, it) }
+            "||" -> filter.conditions.any { matchesCondition(obj, it) }
+            else -> false
         }
     }
 
@@ -1145,27 +1130,26 @@ class KJsonQuery {
          */
         data class ArrayIndex(val index: Int) : PathSegment()
 
-        /**
-         * Represents a filter condition to apply on JSON objects.
-         *
-         * @property conditions List of individual conditions to evaluate
-         * @property logicalOperator The logical operator to combine conditions ("&&" or "||")
-         */
-        data class Filter(val conditions: List<Condition>, val logicalOperator: String = "&&") : PathSegment() {
-            /**
-             * Represents a single condition within a filter
-             */
-            data class Condition(
-                val property: String,
-                val operator: String,
-                val value: Any?
-            )
+        class Filter(
+            val conditions: List<Condition> = emptyList(),
+            val logicalOperator: String = "&&",
+            val subFilters: List<Filter> = emptyList() // 添加子过滤器支持
+        ) : PathSegment() {
+            data class Condition(val property: String, val operator: String, val value: Any?)
+
+            override fun toString(): String {
+                return "Filter(conditions=$conditions, operator=$logicalOperator, subFilters=$subFilters)"
+            }
         }
 
         /**
          * Represents a wildcard that matches all elements in an array or all properties in an object.
          * Used with the "*" notation in JSONPath.
          */
-        object AllElements : PathSegment()
+        object AllElements : PathSegment() {
+            override fun toString(): String {
+                return "AllElements[*]"
+            }
+        }
     }
 }

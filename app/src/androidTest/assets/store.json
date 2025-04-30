@@ -1,0 +1,54 @@
+{
+  "store": {
+    "book": [
+      {
+        "category": "reference",
+        "author": "Nigel Rees",
+        "title": "Sayings of the Century",
+        "price": 8.95
+      },
+      {
+        "category": "fiction",
+        "author": "Evelyn Waugh",
+        "title": "Sword of Honour",
+        "price": 12.99
+      },
+      {
+        "category": "fiction",
+        "author": "Evelyn Waugh",
+        "title": "48 hour around the world",
+        "price": 13.59
+      },
+      {
+        "category": "历史",
+        "author": "张三",
+        "title": "南北朝史",
+        "price": 23.59
+      },
+      {
+        "category": "历史",
+        "author": "太史公",
+        "title": "史记",
+        "price": 5.59
+      },
+      {
+        "category": "数学",
+        "author": "张骞",
+        "title": "高等数学",
+        "price": 33.99
+      },
+      {
+        "category": "数学",
+        "author": "张骞",
+        "title": "微积分",
+        "price": 53.99
+      }
+    ],
+    "bicycle": {
+      "color": "red",
+      "price": 19.95,
+      "features": ["speed", "comfort", "safety"]
+    }
+  },
+  "expensive": 10
+}

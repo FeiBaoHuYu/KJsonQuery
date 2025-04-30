@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.feibaomg.minicompose"
+    namespace = "com.feibaomg.foundation"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.feibaomg.minicompose"
+        applicationId = "com.feibaomg.foundation"
         minSdk = 29
         targetSdk = 35
         versionCode = 1

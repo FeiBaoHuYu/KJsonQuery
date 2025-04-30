@@ -1,4 +1,4 @@
-package com.feibaomg.minicompose.ui.theme
+package com.feibaomg.foundation.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

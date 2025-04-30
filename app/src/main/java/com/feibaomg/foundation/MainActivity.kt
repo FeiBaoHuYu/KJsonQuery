@@ -1,4 +1,4 @@
-package com.feibaomg.minicompose
+package com.feibaomg.foundation
 
 import android.os.Bundle
 import android.util.Log
@@ -17,7 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.feibaomg.minicompose.ui.theme.MiniComposeTheme
+import com.feibaomg.foundation.ui.theme.MiniComposeTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch

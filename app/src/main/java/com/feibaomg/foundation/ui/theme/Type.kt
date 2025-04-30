@@ -1,4 +1,4 @@
-package com.feibaomg.minicompose.ui.theme
+package com.feibaomg.foundation.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle

@@ -1,4 +1,4 @@
-package com.feibaomg.minicompose
+package com.feibaomg.foundation
 
 import org.junit.Test
 
