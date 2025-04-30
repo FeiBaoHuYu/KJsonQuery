@@ -61,24 +61,21 @@ class KJsonQuery {
     }
 
     /**
-     * Queries the JSON file using a JSONPath expression and returns matching elements.
+     * 使用JSONPath表达式查询JSON文件并返回匹配的元素。
      *
-     * This function searches through the JSON data using the provided JSONPath expression
-     * and returns all matching elements. Results are cached for improved performance on
-     * subsequent identical queries.
+     * 此函数使用流式解析的方式搜索JSON数据并返回所有匹配的元素。
+     * 如果查询是对已缓存数组的过滤（例如："$.users[@.id=1]"），
+     * 它将使用缓存的数组而不是再次从文件中读取。
      *
-     * If the query is filtering an array that's already cached (e.g., "$.users[@.id=1]"),
-     * it will use the cached array instead of reading from the file again.
+     * 注意：查询时建议使用limit=1参数以提高性能（找到一个就会立即返回而不会继续搜索）。
      *
-     * NOTE: recommend to use a limit when dealing with large result sets to improve performance.
-     *
-     * @param jsonPath The JSONPath expression to query the JSON data. Defaults to "$" which
-     *                 represents the root of the JSON document.
-     * @param limit The maximum number of results to return. If set to a positive number,
-     *              only that many results will be returned. If set to -1 (default),
-     *              all matching results will be returned.
-     * @return A list containing all JSON elements that match the query, or an empty list
-     *         if no matches are found or an error occurs during processing.
+     * @param jsonPath JSONPath表达式，用于查询JSON数据。默认为"$"，
+     *                 表示JSON文档的根节点。
+     * @param limit 返回结果的最大数量。如果设置为正数，
+     *              将只返回指定数量的结果。如果设置为-1（默认值），
+     *              将返回所有匹配的结果。
+     * @return 包含所有匹配查询的JSON元素的列表，如果没有找到匹配项
+     *         或处理过程中发生错误，则返回空列表。
      */
     fun query(jsonPath: String = "$", limit: Int = -1): List<Any?> {
         // Check if this is a filter on a cached array
@@ -104,7 +101,11 @@ class KJsonQuery {
             //rewind the buffer  for next query.
             mappedByteBuffer.rewind()
 
-            return if (limit > 0) results.take(limit) else results
+            val resultList = if (limit > 0) results.take(limit) else results
+            if (resultList.size == 1 && resultList[0] is List<*>) {
+                return resultList[0] as List<Any?>
+            }
+            return resultList
         } catch (e: Exception) {
             Log.e(TAG, "Error querying JSON: ", e)
             return emptyList()
@@ -113,6 +114,21 @@ class KJsonQuery {
         }
     }
 
+    /**
+     * 在缓存的数组中执行查询操作
+     *
+     * 此方法首先检查完整的jsonPath是否已被缓存，如果是则直接返回缓存结果。
+     * 否则，尝试从jsonPath中提取数组路径和过滤表达式，例如从"$.users[?(@.id=1)]"
+     * 提取出"$.users"和"@.id=1"。
+     *
+     * 如果提取成功且数组路径已被缓存，则对缓存的数组应用过滤表达式，
+     * 而不是重新从文件中读取整个JSON。这大大提高了查询性能，
+     * 特别是对大型JSON文件的重复查询。
+     *
+     * @param jsonPath 要查询的JSONPath表达式
+     * @param limit 返回结果的最大数量，-1表示不限制
+     * @return 匹配的结果列表，如果无法在缓存中执行查询则返回null
+     */
     private fun queryInCachedArray(jsonPath: String, limit: Int = -1): List<Any?>? {
         val cachedResult = arrayFieldsCache[jsonPath]
         if (cachedResult != null) {
@@ -135,9 +151,16 @@ class KJsonQuery {
     }
 
     /**
-     * Extracts the base array path and filter expression from a JSONPath
-     * For example, "$.users[?(@.id=1)]" would return ("$.users", "(@.id=1)")
-     * Also handles complex expressions like "$.users[?((@.id==1&&@.name=="John")||@.role=="admin")]"
+     * 从JSONPath表达式中提取数组路径和过滤表达式
+     *
+     * 此方法解析包含过滤条件的JSONPath表达式，将其分解为基本数组路径和过滤表达式。
+     * 例如，对于"$.users[?(@.id=1)]"，会返回("$.users", "@.id=1")。
+     *
+     * 该方法能够处理复杂的嵌套表达式，如"$.users[?((@.id==1&&@.name=="John")||@.role=="admin")]"，
+     * 通过跟踪括号的嵌套深度来正确识别过滤表达式的边界。
+     *
+     * @param jsonPath 要解析的JSONPath表达式
+     * @return 包含数组路径和过滤表达式的键值对，如果表达式不包含过滤条件则返回null
      */
     private fun extractArrayPathAndFilter(jsonPath: String): Pair<String, String>? {
         // Find the position of the filter start
@@ -179,7 +202,18 @@ class KJsonQuery {
     }
 
     /**
-     * Applies a filter expression to a cached array
+     * 将过滤表达式应用于缓存的数组
+     *
+     * 此方法接收一个数组和过滤表达式，解析过滤表达式并将其应用于数组中的每个元素。
+     * 它首先将过滤表达式解析为结构化的过滤器对象，然后遍历数组中的每个元素，
+     * 检查每个元素是否满足过滤条件。满足条件的元素会被添加到结果列表中。
+     *
+     * 如果指定了limit参数，则在结果数量达到限制时会提前停止处理，提高查询效率。
+     *
+     * @param array 要过滤的数组
+     * @param filterExpression 过滤表达式字符串，例如"@.id==1"
+     * @param limit 返回结果的最大数量，-1表示不限制
+     * @return 满足过滤条件的元素列表
      */
     private fun applyFilterToArray(array: List<Any?>, filterExpression: String, limit: Int): List<Any?> {
         val filter = parseFilter(filterExpression)
@@ -198,10 +232,15 @@ class KJsonQuery {
     }
 
     /**
-     * Caches an array field from the JSON for faster subsequent filtered queries.
+     * 缓存JSON数组字段以加速后续的数组内元素的反复查询
      *
-     * @param arrayPath The JSONPath to the array (e.g., "$.users")
-     * @return The cached array or null if the path doesn't point to an array
+     * 此方法查询指定路径的JSON数组并将其缓存在内存中，以便后续对该数组的过滤操作
+     * 可以直接在内存中执行，而无需重新解析整个JSON文件。这显著提高了对大型JSON文件
+     * 中数组的重复查询性能。
+     *
+     * @param arrayPath 数组的JSONPath路径（例如"$.users"）
+     * @param cacheKey 可选的缓存键名，如果不提供则使用arrayPath作为键
+     * @return 缓存的数组，如果路径不指向数组则返回null
      */
     fun cacheArrayField(arrayPath: String, cacheKey: String? = null): List<Any?>? {
         // Check if already cached
@@ -261,9 +300,8 @@ class KJsonQuery {
         }
     }
 
-
     fun release() {
-        clearCache()
+        clearArrayCache()
         releaseFileBuffer()
     }
 
@@ -286,7 +324,6 @@ class KJsonQuery {
         arrayFieldsCache.remove(jsonPath)
     }
 
-
     /**
      *  Rewind the buffer to the beginning for next gson reader reading again
      */
@@ -304,6 +341,27 @@ class KJsonQuery {
         return results
     }
 
+    /**
+     * 评估JSONPath路径并返回匹配的结果
+     *
+     * 此方法是JSONPath查询的核心实现，它递归地处理JSONPath路径段并在JSON数据中查找匹配项。
+     * 方法通过深度优先遍历的方式，根据当前路径段的类型（属性、数组索引、过滤器等）
+     * 在JSON结构中导航，并收集所有匹配的结果。
+     *
+     * 支持以下功能：
+     * - 属性访问（如$.store.book）
+     * - 数组索引访问（如$.store.book[0]）
+     * - 通配符（如$.store.*）
+     * - 数组过滤（如$.store.book[?(@.price<10)]）
+     * - 结果数量限制（提高性能）
+     *
+     * @param reader JSON读取器，指向当前解析位置
+     * @param pathSegments 解析后的JSONPath路径段列表
+     * @param index 当前处理的路径段索引
+     * @param customFilter 可选的自定义过滤函数
+     * @param limit 返回结果的最大数量，-1表示不限制
+     * @return 匹配路径的所有JSON元素列表
+     */
     private fun evaluatePath(
         reader: JsonReader,
         pathSegments: List<PathSegment>,
@@ -439,6 +497,22 @@ class KJsonQuery {
         return results
     }
 
+    /**
+     * 解析JSONPath表达式为路径段列表
+     *
+     * 此方法将JSONPath字符串（如"$.store.book[0].title"）解析为结构化的路径段列表，
+     * 每个路径段代表JSONPath中的一个组件（属性名、数组索引、过滤器等）。
+     *
+     * 方法能够处理复杂的JSONPath表达式，包括：
+     * - 属性访问（如$.store.book）
+     * - 数组索引（如$[0]或$.books[1]）
+     * - 通配符（如$.store.*）
+     * - 过滤表达式（如$.store.book[?(@.price<10)]）
+     * - 嵌套过滤条件（如$.book[?((@.price>10&&@.category=="fiction")||@.author=="Tolkien")]）
+     *
+     * @param jsonPath 要解析的JSONPath表达式字符串
+     * @return 解析后的PathSegment对象列表，表示JSONPath的各个组成部分
+     */
     //"$.IniTopicDialog.data[?(@.roleId==20001&@.dialogueId==439)]"
     private fun parseJsonPath(jsonPath: String): List<PathSegment> {
         val segments = mutableListOf<PathSegment>()
@@ -762,32 +836,20 @@ class KJsonQuery {
         return null
     }
 
-    private fun parseAndConditions(expression: String): PathSegment.Filter {
-        // This method is now a simpler version since complex parsing is handled by parseComplexExpression
-        val conditions = mutableListOf<PathSegment.Filter.Condition>()
-
-        // If the expression contains parentheses, it might be complex
-        if (expression.contains("(") && expression.contains(")")) {
-            return parseComplexExpression(expression)
-        }
-
-        // Simple AND conditions without nested parentheses
-        val andParts = if (expression.contains("&&")) {
-            expression.split("&&")
-        } else {
-            listOf(expression) // Single condition
-        }
-
-        for (part in andParts) {
-            val condition = parseCondition(part.trim())
-            if (condition != null) {
-                conditions.add(condition)
-            }
-        }
-
-        return PathSegment.Filter(conditions, "&&")
-    }
-
+    /**
+     * 评估JSONPath路径并返回匹配的结果
+     *
+     * 此方法是JSONPath查询的核心实现，它递归地处理JSONPath路径段并在JSON数据中查找匹配项。
+     * 方法通过深度优先遍历的方式，根据当前路径段的类型（属性、数组索引、过滤器等）
+     * 在JSON结构中导航，并收集所有匹配的结果。
+     *
+     * 此版本是不带限制参数的简化版本，主要用于内部递归调用。完整版本支持自定义过滤器和结果数量限制。
+     *
+     * @param reader JSON读取器，指向当前解析位置
+     * @param pathSegments 解析后的JSONPath路径段列表
+     * @param index 当前处理的路径段索引
+     * @return 匹配路径的所有JSON元素列表
+     */
     private fun evaluatePath(reader: JsonReader, pathSegments: List<PathSegment>, index: Int): List<Any?> {
         if (index >= pathSegments.size) {
             return listOf(readValue(reader))
@@ -1080,34 +1142,6 @@ class KJsonQuery {
         return JsonReader(reader)
     }
 
-
-    fun filterObjectIntField(result: Any?, key: String): Int? {
-        if (result !is Map<*, *>) {
-            return null
-        }
-        val resultObjects = result as Map<*, *>
-        return resultObjects[key]?.toString()?.toIntOrNull()
-    }
-
-    fun filterObjectStringField(result: Any?, key: String): String? {
-        if (result !is Map<*, *>) {
-            return null
-        }
-        val resultObjects = result as Map<*, *>
-        return resultObjects[key]?.toString()
-    }
-
-    fun filterDoubleStringField(result: Any?, key: String): Double? {
-        if (result !is Map<*, *>) {
-            return null
-        }
-        val resultObjects = result as Map<*, *>
-        return resultObjects[key]?.toString()?.toDoubleOrNull()
-    }
-
-    private fun clearCache() {
-        arrayFieldsCache.clear()
-    }
 
 
     /**

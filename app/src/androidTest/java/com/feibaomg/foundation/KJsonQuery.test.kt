@@ -112,12 +112,13 @@ class KJsonQueryTest {
         assertEquals(1, storeResult.size)
     }
     @Test
-    fun test_access_array_elements_within_nested_object() {
-        val bikeFeatures = kJsonQuery.query("$.store.bicycle.features")  // List<List<String>>
-        println(bikeFeatures)  // Prints: [[speed, comfort, safety]]
-        assertEquals(1, bikeFeatures.size)
-        assertEquals(3, (bikeFeatures[0] as List<String>).size)
+    fun test_access_array_elements() {
+        val bikeFeatures = kJsonQuery.query("$.store.bicycle.features")  // List<String>
+        println(bikeFeatures)  // Prints: [speed, comfort, safety]
+        assertEquals(3, bikeFeatures.size)
+        assertEquals("speed", bikeFeatures[0])
     }
+
     @Test
     fun test_with_single_filter() {
         // Test accessing nested array with complex filter (price > 10)
