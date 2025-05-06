@@ -5,10 +5,12 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import junit.framework.TestCase.assertEquals
 import junit.framework.TestCase.assertNotNull
+import org.junit.Assert
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.io.FileNotFoundException
 import java.io.FileOutputStream
 
 @RunWith(AndroidJUnit4::class)
@@ -184,19 +186,23 @@ class KJsonQueryTest {
 
 
     @Test
-    fun test_empty_or_non_existent_json_file() {
+    fun test_throw_exception_when_create_query_with_non_existent_json_file() {
         // Create a non-existent file path
+
+        //FileNotFoundException
         val nonExistentFile = File(context.filesDir, "nonexistent.json")
         if (nonExistentFile.exists()) {
             nonExistentFile.delete()
         }
 
-        // Try to query from non-existent file
-        val query = KJsonQuery.getInstance(nonExistentFile)
-        val result = query.query("$.anyPath")
+        Assert.assertThrows("File does not exist: $nonExistentFile",FileNotFoundException::class.java) {
+            // Try to create query from non-existent file
+            KJsonQuery.getInstance(nonExistentFile)
+        }
+    }
 
-        // Verify result is empty
-        assertEquals(0, result.size)
+    @Test
+    fun test_return_empty_when_query_with_empty_json_file() {
 
         // Create an empty file
         val emptyFile = File(context.filesDir, "empty.json")
