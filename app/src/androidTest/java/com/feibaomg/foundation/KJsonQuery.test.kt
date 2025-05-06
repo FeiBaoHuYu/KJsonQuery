@@ -100,7 +100,7 @@ class KJsonQueryTest {
     }
 
     @Test
-    fun test_wild_char_all_array_elements() {
+    fun test_wild_char_to_get_all_array_elements() {
         // Test wildcard access for all books
         val allBooks = kJsonQuery.query("$.store.book[*]")
         println(allBooks)
@@ -122,7 +122,7 @@ class KJsonQueryTest {
     }
 
     @Test
-    fun test_with_single_filter() {
+    fun test_access_array_elements_with_number_filter() {
         // Test accessing nested array with complex filter (price > 10)
         val expensiveBooks = kJsonQuery.query("$.store.book[?(@.price>10)]") as List<Map<String,*>>
         assertEquals(5, expensiveBooks.size)
@@ -135,7 +135,7 @@ class KJsonQueryTest {
         assertEquals("Nigel Rees", firstBookResult[0]["author"])
     }
     @Test
-    fun test_access_array_elements_with_property_filter() {
+    fun test_access_array_elements_with_string_compare_filter() {
         // Test accessing nested array with property filter
         val fictionBooks = kJsonQuery.query("""$.store.book[?(@.category=="fiction")]""")  as List<Map<String,*>>
         assertEquals(2, fictionBooks.size)
@@ -155,7 +155,7 @@ class KJsonQueryTest {
     }
 
     @Test
-    fun test_complex_one_nested_filters() {
+    fun test_access_array_elements_with_complex_nested_one_filter() {
 
         val books = kJsonQuery.query("""$.store.book[?((@.category=="数学"&&@.price>50)||@.category=="历史")]""") as List<Map<String,*>>
         println(books)
@@ -170,7 +170,7 @@ class KJsonQueryTest {
 
     }
     @Test
-    fun test_complex_two_nested_filters() {
+    fun test_access_array_elements_with_complex_nested_two_filters() {
 
         val books = kJsonQuery.query("""$.store.book[?((@.category=="数学"&&@.price>50)||(@.category=="历史"&&@.price<10))]""") as List<Map<String,*>>
         println(books)

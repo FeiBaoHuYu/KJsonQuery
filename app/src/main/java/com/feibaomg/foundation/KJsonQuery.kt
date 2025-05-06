@@ -3,6 +3,7 @@ package com.feibaomg.foundation
 import android.util.JsonReader
 import android.util.JsonToken
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import com.google.gson.Gson
 import java.io.File
 import java.io.FileInputStream
@@ -22,7 +23,9 @@ private const val TAG = "KJsonQuery"
 
 class KJsonQuery {
     // dedicated cache for array fields
+    @VisibleForTesting
     private val arrayFieldsCache = mutableMapOf<String, List<Any?>>()
+
     lateinit var jsonFile: File
 
     // mapped byte buffer for efficient reading
@@ -60,22 +63,25 @@ class KJsonQuery {
         mapJsonFileToByteBuffer(file)
     }
 
+
     /**
-     * 使用JSONPath表达式查询JSON文件并返回匹配的元素。
+     * Queries a JSON file using a JSONPath expression and returns matching elements.
      *
-     * 此函数使用流式解析的方式搜索JSON数据并返回所有匹配的元素。
-     * 如果查询是对已缓存数组的过滤（例如："$.users[@.id=1]"），
-     * 它将使用缓存的数组而不是再次从文件中读取。
+     * This function performs streaming parsing of JSON data to search and return all matching elements.
+     * If the query is filtering an already cached array (e.g., "$.users[@.id=1]"),
+     * it will use the cached array instead of reading from the file again.
      *
-     * 注意：查询时建议使用limit=1参数以提高性能（找到一个就会立即返回而不会继续搜索）。
+     * Note: Using limit=1 parameter is recommended for better performance (returns immediately after finding one match).
      *
-     * @param jsonPath JSONPath表达式，用于查询JSON数据。默认为"$"，
-     *                 表示JSON文档的根节点。
-     * @param limit 返回结果的最大数量。如果设置为正数，
-     *              将只返回指定数量的结果。如果设置为-1（默认值），
-     *              将返回所有匹配的结果。
-     * @return 包含所有匹配查询的JSON元素的列表，如果没有找到匹配项
-     *         或处理过程中发生错误，则返回空列表。
+     * @param jsonPath The JSONPath expression to query the JSON data. Defaults to "$",
+     *                 which represents the root node of the JSON document.
+     * @param limit The maximum number of results to return. If set to a positive number,
+     *              only that many results will be returned. If set to -1 (default),
+     *              all matching results will be returned.
+     * @param filter An optional function that takes a JSON element and returns a boolean,
+     *               allowing for custom filtering of results beyond what JSONPath expressions can do.
+     * @return A list containing all JSON elements matching the query. Returns an empty list
+     *         if no matches are found or if an error occurs during processing.
      */
     fun query(jsonPath: String = "$", limit: Int = -1, filter: ((Any?) -> Boolean)? = null): List<Any?> {
         // Check if this is a filter on a cached array
@@ -114,7 +120,10 @@ class KJsonQuery {
             Log.e(TAG, "Error querying JSON: ", e)
             return emptyList()
         } finally {
-            jsonReader?.close()
+            try {
+                jsonReader?.close()
+            } catch (_: IOException) {
+            }
         }
     }
 
@@ -134,17 +143,19 @@ class KJsonQuery {
      * @return 匹配的结果列表，如果无法在缓存中执行查询则返回null
      */
     private fun queryInCachedArray(jsonPath: String, limit: Int = -1): List<Any?>? {
-        val cachedResult = arrayFieldsCache[jsonPath]
+        val arrayPathAndFilter = extractArrayPathAndFilter(jsonPath)
+        if (arrayPathAndFilter == null) {
+            //如果查询不包含过滤条件，直接返回缓存中对应的数据（可能为null）
+            return arrayFieldsCache[jsonPath]
+        }
+
+        val (arrayPath, filterExpression) = arrayPathAndFilter
+
+        val cachedResult = arrayFieldsCache[arrayPath]
         if (cachedResult != null) {
             return cachedResult
         }
 
-        val arrayPathAndFilter = extractArrayPathAndFilter(jsonPath)
-        if (arrayPathAndFilter == null) {
-            return null
-        }
-
-        val (arrayPath, filterExpression) = arrayPathAndFilter
         if (!arrayFieldsCache.containsKey(arrayPath)) {
             return null
         }
@@ -243,10 +254,10 @@ class KJsonQuery {
      * 中数组的重复查询性能。
      *
      * @param arrayPath 数组的JSONPath路径（例如"$.users"）
-     * @param cacheKey 可选的缓存键名，如果不提供则使用arrayPath作为键
+     * @param cacheKey 可选的缓存键名，如果不提供则默认使用arrayPath作为键
      * @return 缓存的数组，如果路径不指向数组则返回null
      */
-    fun cacheArrayField(arrayPath: String, cacheKey: String? = null): List<Any?>? {
+    fun cacheArrayField(arrayPath: String, cacheKey: String = arrayPath): List<Any?>? {
         // Check if already cached
         if (arrayFieldsCache.containsKey(arrayPath)) {
             return arrayFieldsCache[arrayPath]
@@ -254,7 +265,6 @@ class KJsonQuery {
 
         // Query the array
         val result = query(arrayPath)
-        val cacheKey = cacheKey ?: arrayPath
         // Only cache if it's actually an array (list)
         if (result.size == 1 && result[0] is List<*>) {
             val arrayResult = result[0] as List<*>
