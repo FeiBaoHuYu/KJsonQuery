@@ -4,6 +4,7 @@ import android.util.JsonReader
 import android.util.JsonToken
 import android.util.Log
 import androidx.annotation.VisibleForTesting
+import com.feibaomg.foundation.KJsonQuery.QueryBuilder
 import com.google.gson.Gson
 import java.io.File
 import java.io.FileInputStream
@@ -63,6 +64,133 @@ class KJsonQuery {
         mapJsonFileToByteBuffer(file)
     }
 
+    /**
+     * Creates a new QueryBuilder for fluent, SQL-like queries
+     * @return A new QueryBuilder instance
+     */
+    fun select(): QueryBuilder {
+        return QueryBuilder(this)
+    }
+
+    /**
+     * Creates a new QueryBuilder with a specific path
+     * @param path The JSONPath to query
+     * @return A new QueryBuilder instance
+     */
+    fun select(path: String): QueryBuilder {
+        return QueryBuilder(this).from(path)
+    }
+
+    /**
+     * Fluent query builder for KJsonQuery that enables SQL-like syntax and lazy evaluation
+     */
+    inner class QueryBuilder(private val kJsonQuery: KJsonQuery) {
+        private var jsonPath: String = "$"
+        private var limit: Int = -1
+        private var filters = mutableListOf<(Any?) -> Boolean>()
+        private var isExecuted = false
+        private var cachedResults: List<Any?>? = null
+
+        /**
+         * Selects data from a specific path in the JSON
+         * @param path The JSONPath to query
+         * @return This QueryBuilder for chaining
+         */
+        fun from(path: String): QueryBuilder {
+            jsonPath = path
+            isExecuted = false
+            return this
+        }
+
+        /**
+         * Limits the number of results returned
+         * @param count Maximum number of results to return
+         * @return This QueryBuilder for chaining
+         */
+        fun limit(count: Int): QueryBuilder {
+            limit = count
+            isExecuted = false
+            return this
+        }
+
+        /**
+         * Adds a filter condition using a lambda
+         * 这里的filter是查询出所有符合条件的数据后再过滤，而不是在查询时就对结果进行过滤
+         * @param predicate Lambda function that takes a JSON element and returns true if it should be included
+         * @return This QueryBuilder for chaining
+         */
+        fun where(predicate: (Any?) -> Boolean): QueryBuilder {
+            filters.add(predicate)
+            isExecuted = false
+            return this
+        }
+
+        /**
+         * Executes the query and returns the results
+         * @return List of matching JSON elements
+         */
+        fun execute(): List<Any?> {
+            if (!isExecuted || cachedResults == null) {
+                var results = kJsonQuery.query(jsonPath, limit)
+                if (results.isEmpty()) {
+                    Log.w(TAG, "No results found for path: $jsonPath")
+                    return emptyList()
+                } else {
+                    Log.d(TAG, "execute path=$jsonPath, results:$results")
+                }
+
+                // Apply all filters
+                for (filter in filters) {
+                    results = results.filter(filter)
+                }
+
+                // Apply limit if needed
+                if (limit > 0 && results.size > limit) {
+                    results = results.take(limit)
+                }
+
+                cachedResults = results
+                isExecuted = true
+            }
+
+            return cachedResults!!
+        }
+
+        /**
+         * execute query and maps each result to a new value using the provided transform function
+         * @param transform Function to transform each result
+         * @return List of transformed results
+         */
+        fun <R> map(transform: (Any?) -> R): List<R> {
+            return execute().map(transform)
+        }
+
+        /**
+         * Returns the first result or null if no results
+         * @return The first result or null
+         */
+        fun firstOrNull(): Any? {
+            val results = execute()
+            return if (results.isNotEmpty()) results[0] else null
+        }
+
+        /**
+         * Returns the first result or throws NoSuchElementException if no results
+         * @return The first result
+         * @throws NoSuchElementException if no results
+         */
+        fun first(): Any? {
+            return execute().first()
+        }
+
+        /**
+         * Returns the number of results
+         * @return Count of results
+         */
+        fun count(): Int {
+            return execute().size
+        }
+    }
 
     /**
      * Queries a JSON file using a JSONPath expression and returns matching elements.
@@ -114,7 +242,7 @@ class KJsonQuery {
                 results = results.filter(filter)
             }
 
-            return if (limit > 0) results.take(limit) else results
+            return results
 
         } catch (e: Exception) {
             Log.e(TAG, "Error querying JSON: ", e)
@@ -351,7 +479,7 @@ class KJsonQuery {
         val pathSegments = parseJsonPath(jsonPath)
         Log.d(TAG, "jsonpath segments: $pathSegments")
         val results = evaluatePath(reader, pathSegments, 0, limit = limit)
-        Log.d(TAG, "\njsonPath=$jsonPath\nresults=${if (results.size > 10) "${results.size} items" else results}")
+        Log.d(TAG, "jsonPath=$jsonPath\nresults=${if (results.size > 10) "${results.size} items" else results}")
         return results
     }
 
@@ -1200,3 +1328,4 @@ class KJsonQuery {
         }
     }
 }
+

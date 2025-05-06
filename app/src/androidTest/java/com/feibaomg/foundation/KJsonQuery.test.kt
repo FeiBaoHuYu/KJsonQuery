@@ -24,7 +24,7 @@ class KJsonQueryTest {
     var copied = false
 
     fun copyFile() {
-        if(!copied) {
+        if (!copied) {
             copied = true
             val fileName = "store.json"
             val file = File(context.getExternalFilesDir(null), fileName)
@@ -100,12 +100,50 @@ class KJsonQueryTest {
     }
 
     @Test
+    fun test_select_with_path_returns_valid_query_builder() {
+        // Call the select method with a path
+        val queryBuilder = kJsonQuery.select("$.store")
+
+        // Verify that the returned object is a valid QueryBuilder instance
+        assertNotNull(queryBuilder)
+
+        // Verify that the QueryBuilder has the correct path by executing a query
+        val result = queryBuilder.execute()
+
+        assertEquals("bookstore", (result as List<Map<*, *>>)[0]["bookstore"])
+    }
+
+    /**
+     * 类似SQL的查询语法示例
+     */
+    @Test
+    fun test_select_with_path_and_filter_with_where_statement() {
+        val myMoney: Double = 25.toDouble()
+        // Call the select method with a path
+        val results = kJsonQuery.select("""$.store.book[?(@.category=="历史")]""")
+            .where {
+                //转换成map
+                val book = it as Map<*, *>
+                // 模拟外部条件判断
+                (book["price"] as Double) <= myMoney
+            }
+            .limit(1)
+            .execute()
+
+        assertNotNull(results)
+        assertEquals(1, results.size)
+        assertEquals("历史", (results[0] as Map<*, *>)["category"])
+    }
+
+
+    @Test
     fun test_wild_char_to_get_all_array_elements() {
         // Test wildcard access for all books
         val allBooks = kJsonQuery.query("$.store.book[*]")
         println(allBooks)
         assertEquals(7, allBooks.size)
     }
+
     @Test
     fun test_object_property_access() {
         // Test accessing nested object properties
@@ -113,6 +151,7 @@ class KJsonQueryTest {
         println(storeResult)  // Prints: [{book=[{...]}]
         assertEquals(1, storeResult.size)
     }
+
     @Test
     fun test_access_array_elements() {
         val bikeFeatures = kJsonQuery.query("$.store.bicycle.features")  // List<String>
@@ -124,26 +163,29 @@ class KJsonQueryTest {
     @Test
     fun test_access_array_elements_with_number_filter() {
         // Test accessing nested array with complex filter (price > 10)
-        val expensiveBooks = kJsonQuery.query("$.store.book[?(@.price>10)]") as List<Map<String,*>>
+        val expensiveBooks = kJsonQuery.query("$.store.book[?(@.price>10)]") as List<Map<String, *>>
         assertEquals(5, expensiveBooks.size)
         assertEquals("Sword of Honour", expensiveBooks[0]["title"])
     }
+
     @Test
     fun test_access_array_elements_with_specific_index() {
         // Test accessing array with specific index
-        val firstBookResult = kJsonQuery.query("$.store.book[0]") as List<Map<String,*>>
+        val firstBookResult = kJsonQuery.query("$.store.book[0]") as List<Map<String, *>>
         assertEquals("Nigel Rees", firstBookResult[0]["author"])
     }
+
     @Test
     fun test_access_array_elements_with_string_compare_filter() {
         // Test accessing nested array with property filter
-        val fictionBooks = kJsonQuery.query("""$.store.book[?(@.category=="fiction")]""")  as List<Map<String,*>>
+        val fictionBooks = kJsonQuery.query("""$.store.book[?(@.category=="fiction")]""") as List<Map<String, *>>
         assertEquals(2, fictionBooks.size)
         assertEquals("Evelyn Waugh", fictionBooks[0]["author"])
     }
+
     @Test
     fun test_access_array_elements_with_multiple_property_filters() {
-        val twoCategoryBooks = kJsonQuery.query("""$.store.book[?(@.category=="数学"||@.category=="历史")]""")  as List<Map<String,*>>
+        val twoCategoryBooks = kJsonQuery.query("""$.store.book[?(@.category=="数学"||@.category=="历史")]""") as List<Map<String, *>>
         assertEquals(4, twoCategoryBooks!!.size)
         var historyBook = twoCategoryBooks.find { it["title"] == "南北朝史" } as? Map<*, *>
         assertNotNull(historyBook)
@@ -157,7 +199,7 @@ class KJsonQueryTest {
     @Test
     fun test_access_array_elements_with_complex_nested_one_filter() {
 
-        val books = kJsonQuery.query("""$.store.book[?((@.category=="数学"&&@.price>50)||@.category=="历史")]""") as List<Map<String,*>>
+        val books = kJsonQuery.query("""$.store.book[?((@.category=="数学"&&@.price>50)||@.category=="历史")]""") as List<Map<String, *>>
         println(books)
         assertNotNull(books)
         assertEquals(3, books.size)
@@ -169,10 +211,11 @@ class KJsonQueryTest {
         assertEquals("南北朝史", historyBooks[0]["title"])
 
     }
+
     @Test
     fun test_access_array_elements_with_complex_nested_two_filters() {
 
-        val books = kJsonQuery.query("""$.store.book[?((@.category=="数学"&&@.price>50)||(@.category=="历史"&&@.price<10))]""") as List<Map<String,*>>
+        val books = kJsonQuery.query("""$.store.book[?((@.category=="数学"&&@.price>50)||(@.category=="历史"&&@.price<10))]""") as List<Map<String, *>>
         println(books)
         assertNotNull(books)
         assertEquals(2, books.size)
@@ -195,7 +238,7 @@ class KJsonQueryTest {
             nonExistentFile.delete()
         }
 
-        Assert.assertThrows("File does not exist: $nonExistentFile",FileNotFoundException::class.java) {
+        Assert.assertThrows("File does not exist: $nonExistentFile", FileNotFoundException::class.java) {
             // Try to create query from non-existent file
             KJsonQuery.getInstance(nonExistentFile)
         }

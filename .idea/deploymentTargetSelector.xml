@@ -8,12 +8,6 @@
       <SelectionState runConfigName="KJsonQuery.app">
         <option name="selectionMode" value="DROPDOWN" />
       </SelectionState>
-      <SelectionState runConfigName="test_object_property_access()">
-        <option name="selectionMode" value="DROPDOWN" />
-      </SelectionState>
-      <SelectionState runConfigName="test_complex_nested_filters()">
-        <option name="selectionMode" value="DROPDOWN" />
-      </SelectionState>
       <SelectionState runConfigName="test_complex_one_nested_filters()">
         <option name="selectionMode" value="DROPDOWN" />
       </SelectionState>
@@ -21,6 +15,12 @@
         <option name="selectionMode" value="DROPDOWN" />
       </SelectionState>
       <SelectionState runConfigName="KJsonQueryTest">
+        <option name="selectionMode" value="DROPDOWN" />
+      </SelectionState>
+      <SelectionState runConfigName="test_select_with_path_and_filter_with_where_statement()">
+        <option name="selectionMode" value="DROPDOWN" />
+      </SelectionState>
+      <SelectionState runConfigName="test_select_with_path_returns_valid_query_builder()">
         <option name="selectionMode" value="DROPDOWN" />
       </SelectionState>
     </selectionStates>
