@@ -1140,7 +1140,7 @@ class KJsonQuery {
      * @param index 当前处理的路径段索引
      * @return 匹配路径的所有JSON元素列表
      */
-    private fun evaluatePath(reader: JsonReader, pathSegments: List<PathSegment>, index: Int): List<Any?> {
+    internal fun evaluatePath(reader: JsonReader, pathSegments: List<PathSegment>, index: Int): List<Any?> {
         if (index >= pathSegments.size) {
             return listOf(readValue(reader))
         }

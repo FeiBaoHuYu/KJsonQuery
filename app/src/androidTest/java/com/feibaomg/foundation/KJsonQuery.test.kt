@@ -596,6 +596,16 @@ class KJsonQueryTest {
         condition = KJsonQuery.PathSegment.Filter.Condition(property = "price", operator = ">", value = 500)
         result = kJsonQuery.matchesCondition(testObj, condition)
         assertTrue(result)
+
+        // 999 != 500
+        condition = KJsonQuery.PathSegment.Filter.Condition(property = "price", operator = "!=", value = 500)
+        result = kJsonQuery.matchesCondition(testObj, condition)
+        assertTrue(result)
+        //异常情况,字符串和数字相比较返回false, "system" > 500
+        val testObj2 = mapOf("category" to "system")
+        condition = KJsonQuery.PathSegment.Filter.Condition(property = "category", operator = ">", value = 500)
+        result = kJsonQuery.matchesCondition(testObj2, condition)
+        assertFalse(result)
     }
 
     private lateinit var context: Context
