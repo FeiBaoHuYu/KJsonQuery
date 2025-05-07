@@ -1281,7 +1281,7 @@ class KJsonQuery {
      * @return `true` if the object's property matches the condition, `false` otherwise.
      *         Returns `false` if the property doesn't exist in the object or if the operator is unsupported.
      */
-    private fun matchesCondition(obj: Map<*, *>, condition: PathSegment.Filter.Condition): Boolean {
+    internal fun matchesCondition(obj: Map<*, *>, condition: PathSegment.Filter.Condition): Boolean {
         val value = obj[condition.property] ?: return false
 
         return when (condition.operator) {

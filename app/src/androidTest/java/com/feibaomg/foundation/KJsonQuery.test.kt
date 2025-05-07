@@ -8,6 +8,7 @@ import junit.framework.TestCase.assertFalse
 import junit.framework.TestCase.assertNotNull
 import junit.framework.TestCase.assertNotSame
 import junit.framework.TestCase.assertNull
+import junit.framework.TestCase.assertSame
 import junit.framework.TestCase.assertTrue
 import junit.framework.TestCase.fail
 import org.junit.Assert
@@ -141,7 +142,7 @@ class KJsonQueryTest {
     @Test
     fun testQueryBuilderMapMethod() {
 
-        class Book(val category:String, val title: String, val author: String, val price: Double)
+        class Book(val category: String, val title: String, val author: String, val price: Double)
 
         // Use map to transform each user object to just their name
         val names = kJsonQuery.select("$.store.book")
@@ -282,7 +283,7 @@ class KJsonQueryTest {
     fun test_access_array_elements_with_custom_filter() {
         kJsonQuery.cacheArrayField("""$.store.book""")
         // Test accessing nested array with property filter
-        val books = kJsonQuery.query("""$.store.book""", filter= {
+        val books = kJsonQuery.query("""$.store.book""", filter = {
             it is Map<*, *> && it["category"] == "fiction" && it["price"] as Double > 13.0
         }) as List<Map<String, *>>
 
@@ -397,8 +398,10 @@ class KJsonQueryTest {
         }
 
         // The second query should be faster due to caching
-        assertTrue("Query with cache should be faster than without cache",
-            secondQueryTime < firstQueryTime || secondQueryTime < 50) // Allow for small timing variations
+        assertTrue(
+            "Query with cache should be faster than without cache",
+            secondQueryTime < firstQueryTime || secondQueryTime < 50
+        ) // Allow for small timing variations
 
         // Test cache invalidation
         kJsonQuery.invalidateArrayCache("$.store.book")
@@ -410,21 +413,22 @@ class KJsonQueryTest {
         // Call select() twice to get two QueryBuilder instances
         val queryBuilder1 = kJsonQuery.select()
         val queryBuilder2 = kJsonQuery.select()
-        
+
         // Verify that the two instances are different objects
         assertNotSame("Should create a new QueryBuilder instance each time", queryBuilder1, queryBuilder2)
-        
+
         // Add different paths to each builder to further demonstrate they are independent
         queryBuilder1.from("$.store.book")
         queryBuilder2.from("$.store.bicycle")
-        
+
         // Execute both queries
         val result1 = queryBuilder1.execute()
         val result2 = queryBuilder2.execute()
-        
+
         // Verify results are different, showing the instances are independent
         assertNotEquals(result1, result2)
     }
+
     @Test
     fun test_queryInCachedArray_returns_null_for_non_cached_array_path() {
         // Set up a path with filter that is not in the cache
@@ -447,9 +451,9 @@ class KJsonQueryTest {
         val result = kJsonQuery.queryInCachedArray(path)
         // Verify result comes directly from cache
         assertNotNull(result)
-        assertEquals("Sayings of the Century", (result as List<Map<*,*>>)[0]["title"])
+        assertEquals("Sayings of the Century", (result as List<Map<*, *>>)[0]["title"])
     }
-    
+
     @Test
     fun test_queryInCachedArray_withMultipleFilterConditions() {
         // First cache the array of books
@@ -494,6 +498,104 @@ class KJsonQueryTest {
         assertEquals("张骞", book3["author"])
         assertEquals("数学", book3["category"])
         assertEquals(53.99, book3["price"])
+    }
+
+    @Test
+    fun test_getOrCreate_concurrent_access_same_instance() {
+        val threadCount = 10
+        val filepath = testJsonFile.absolutePath
+        val instances = mutableListOf<KJsonQuery>()
+        val countDownLatch = java.util.concurrent.CountDownLatch(threadCount)
+
+        // Create threads that all call getOrCreate with the same filepath
+        val threads = List(threadCount) {
+            Thread {
+                try {
+                    val instance = KJsonQuery.getOrCreate(filepath)
+                    synchronized(instances) {
+                        instances.add(instance)
+                    }
+                } finally {
+                    countDownLatch.countDown()
+                }
+            }
+        }
+
+        // Start all threads
+        threads.forEach { it.start() }
+
+        // Wait for all threads to complete
+        countDownLatch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+
+        // Verify all instances are the same object
+        assertEquals(threadCount, instances.size)
+        for (i in 1 until instances.size) {
+            assertSame(instances[0], instances[i])
+        }
+    }
+
+    @Test
+    fun test_count_returns_correct_number_of_books() {
+        // Query all books
+        val bookCount = kJsonQuery.select("$.store.book").count()
+
+        // Verify count matches the expected number of books in the test data
+        assertEquals(7, bookCount)
+
+        // Test with a filtered query for fiction books
+        val fictionBooksCount = kJsonQuery.select("$.store.book[?(@.category==\"fiction\")]").count()
+        assertEquals(2, fictionBooksCount)
+
+        // Test with a filtered query for math books (using Chinese category name)
+        val mathBooksCount = kJsonQuery.select("$.store.book[?(@.category==\"数学\")]").count()
+        assertEquals(2, mathBooksCount)
+    }
+
+    @Test
+    fun matchesCondition_should_return_false_when_comparing_different_types_with_equality_operator() {
+        // Create a test object
+        val testObj = mapOf("price" to 999)
+        // 999 == 123
+        var condition = KJsonQuery.PathSegment.Filter.Condition(property = "price", operator = "==", value = 123)
+        var result = kJsonQuery.matchesCondition(testObj, condition)
+        // Assert that comparing different types returns false
+        assertFalse(result)
+        // 999 == 999
+        condition = KJsonQuery.PathSegment.Filter.Condition(property = "price", operator = "==", value = 999)
+        result = kJsonQuery.matchesCondition(testObj, condition)
+        assertTrue(result)
+        // 999 >=1000
+        condition = KJsonQuery.PathSegment.Filter.Condition(property = "price", operator = ">=", value = 1000)
+        result = kJsonQuery.matchesCondition(testObj, condition)
+        assertFalse(result)
+        // 999 >=500
+        condition = KJsonQuery.PathSegment.Filter.Condition(property = "price", operator = ">=", value = 500)
+        result = kJsonQuery.matchesCondition(testObj, condition)
+        assertTrue(result)
+        // 999 <= 500
+        condition = KJsonQuery.PathSegment.Filter.Condition(property = "price", operator = "<=", value = 500)
+        result = kJsonQuery.matchesCondition(testObj, condition)
+        assertFalse(result)
+        // 999 <= 1000
+        condition = KJsonQuery.PathSegment.Filter.Condition(property = "price", operator = "<=", value = 1000)
+        result = kJsonQuery.matchesCondition(testObj, condition)
+        assertTrue(result)
+        //999>500
+        condition = KJsonQuery.PathSegment.Filter.Condition(property = "price", operator = ">", value = 500)
+        result = kJsonQuery.matchesCondition(testObj, condition)
+        assertTrue(result)
+        //999 > 1000
+        condition = KJsonQuery.PathSegment.Filter.Condition(property = "price", operator = ">", value = 1000)
+        result = kJsonQuery.matchesCondition(testObj, condition)
+        assertFalse(result)
+        //999<500
+        condition = KJsonQuery.PathSegment.Filter.Condition(property = "price", operator = "<", value = 500)
+        result = kJsonQuery.matchesCondition(testObj, condition)
+        assertFalse(result)
+        // 999 > 500
+        condition = KJsonQuery.PathSegment.Filter.Condition(property = "price", operator = ">", value = 500)
+        result = kJsonQuery.matchesCondition(testObj, condition)
+        assertTrue(result)
     }
 
     private lateinit var context: Context

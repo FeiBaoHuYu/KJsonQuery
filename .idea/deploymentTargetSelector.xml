@@ -14,13 +14,13 @@
       <SelectionState runConfigName="test_access_array_elements_with_custom_filter()">
         <option name="selectionMode" value="DROPDOWN" />
       </SelectionState>
-      <SelectionState runConfigName="test_queryInCachedArray_returns_null_for_non_cached_array_path()">
+      <SelectionState runConfigName="test_getOrCreate_concurrent_access_same_instance()">
         <option name="selectionMode" value="DROPDOWN" />
       </SelectionState>
-      <SelectionState runConfigName="test_queryInCachedArray_returns_cached_data()">
+      <SelectionState runConfigName="test_count_returns_correct_number_of_books()">
         <option name="selectionMode" value="DROPDOWN" />
       </SelectionState>
-      <SelectionState runConfigName="test_queryInCachedArray_withMultipleFilterConditions()">
+      <SelectionState runConfigName="matchesCondition_should_return_false_when_comparing_different_types_with_equality_operator()">
         <option name="selectionMode" value="DROPDOWN" />
       </SelectionState>
     </selectionStates>
