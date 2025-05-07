@@ -439,11 +439,60 @@ class KJsonQueryTest {
         val path = "$.store.book"
         kJsonQuery.cacheArrayField(path)
 
+        // Verify the array is cached
+        assertTrue(kJsonQuery.isArrayFieldCached("$.store.book"))
+
         // Call the method with the cached path
         val result = kJsonQuery.queryInCachedArray(path)
         // Verify result comes directly from cache
         assertNotNull(result)
         assertEquals("Sayings of the Century", (result as List<Map<*,*>>)[0]["title"])
+    }
+    
+    @Test
+    fun test_queryInCachedArray_withMultipleFilterConditions() {
+        // First cache the array of books
+        println("Caching array of books...")
+        kJsonQuery.cacheArrayField("$.store.book")
+        println("start query books...")
+        // Test a query with multiple filter conditions (price > 20 AND category == "历史")
+        val complexFilterPath = "$.store.book[?(@.price>20&&@.category==\"历史\")]"
+        val andFilterResult = kJsonQuery.queryInCachedArray(complexFilterPath)
+
+        // Verify the result
+        assertNotNull(andFilterResult)
+        assertEquals(1, andFilterResult?.size)
+
+        // Check the specific book properties
+        var book = (andFilterResult as List<Map<*, *>>)[0]
+        assertEquals("南北朝史", book["title"])
+        assertEquals("张三", book["author"])
+        assertEquals("历史", book["category"])
+        assertEquals(23.59, book["price"])
+
+        // Test a query with OR condition (category == "历史" OR price > 50)
+        val orFilterPath = "$.store.book[?(@.category==\"历史\"||@.price>50)]"
+        val orFilterResult = kJsonQuery.queryInCachedArray(orFilterPath)
+
+        // Verify the result contains 3 books (2 history books and 1 math book with price > 50)
+        assertNotNull(orFilterResult)
+        assertEquals(3, orFilterResult!!.size)
+        book = (orFilterResult as List<Map<*, *>>)[0]
+        assertEquals("南北朝史", book["title"])
+        assertEquals("张三", book["author"])
+        assertEquals("历史", book["category"])
+        assertEquals(23.59, book["price"])
+        val book2 = (orFilterResult as List<Map<*, *>>)[1]
+        assertEquals("史记", book2["title"])
+        assertEquals("太史公", book2["author"])
+        assertEquals("历史", book2["category"])
+        assertEquals(5.59, book2["price"])
+
+        val book3 = (orFilterResult as List<Map<*, *>>)[2]
+        assertEquals("微积分", book3["title"])
+        assertEquals("张骞", book3["author"])
+        assertEquals("数学", book3["category"])
+        assertEquals(53.99, book3["price"])
     }
 
     private lateinit var context: Context

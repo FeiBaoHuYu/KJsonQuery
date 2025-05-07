@@ -299,13 +299,8 @@ class KJsonQuery {
         }
 
         val (arrayPath, filterExpression) = arrayPathAndFilter
-
-        val cachedResult = arrayFieldsCache[arrayPath]
-        if (cachedResult != null) {
-            return cachedResult
-        }
-
         if (!arrayFieldsCache.containsKey(arrayPath)) {
+            Log.w(TAG, "No cached array found for path: $arrayPath")
             return null
         }
 
@@ -329,7 +324,10 @@ class KJsonQuery {
     private fun extractArrayPathAndFilter(jsonPath: String): Pair<String, String>? {
         // Find the position of the filter start
         val filterStartPos = jsonPath.indexOf("[?")
-        if (filterStartPos == -1) return null
+        if (filterStartPos == -1) {
+            Log.d(TAG, "No filter expression [? in query: :$jsonPath")
+            return null
+        }
 
         // Extract the array path
         val arrayPath = jsonPath.substring(0, filterStartPos)
@@ -384,7 +382,7 @@ class KJsonQuery {
         val results = mutableListOf<Any?>()
         Log.d(TAG, "applyFilterToArray: $filter")
         for (item in array) {
-            if (item is Map<*, *> && matchesFilter(item, filter)) {
+            if (item is Map<*, *> && matchesFilter(item as Map<*, *>, filter)) {
                 results.add(item)
                 if (limit > 0 && results.size >= limit) {
                     break
