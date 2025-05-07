@@ -291,7 +291,7 @@ class KJsonQuery {
      * @param limit 返回结果的最大数量，-1表示不限制
      * @return 匹配的结果列表，如果无法在缓存中执行查询则返回null
      */
-    private fun queryInCachedArray(jsonPath: String, limit: Int = -1): List<Any?>? {
+    fun queryInCachedArray(jsonPath: String, limit: Int = -1): List<Any?>? {
         val arrayPathAndFilter = extractArrayPathAndFilter(jsonPath)
         if (arrayPathAndFilter == null) {
             //如果查询不包含过滤条件，直接返回缓存中对应的数据（可能为null）

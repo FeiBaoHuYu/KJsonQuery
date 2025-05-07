@@ -424,9 +424,27 @@ class KJsonQueryTest {
         // Verify results are different, showing the instances are independent
         assertNotEquals(result1, result2)
     }
+    @Test
+    fun test_queryInCachedArray_returns_null_for_non_cached_array_path() {
+        // Set up a path with filter that is not in the cache
+        val nonCachedPath = "$.store.nonexistent[?(@.id==1)]"
+        // Call the method and check the result
+        val result = kJsonQuery.queryInCachedArray(nonCachedPath, -1)
+        // Should return null because the array path is not cached
+        assertNull(result)
+    }
 
+    @Test
+    fun test_queryInCachedArray_returns_cached_data() {
+        val path = "$.store.book"
+        kJsonQuery.cacheArrayField(path)
 
-
+        // Call the method with the cached path
+        val result = kJsonQuery.queryInCachedArray(path)
+        // Verify result comes directly from cache
+        assertNotNull(result)
+        assertEquals("Sayings of the Century", (result as List<Map<*,*>>)[0]["title"])
+    }
 
     private lateinit var context: Context
     private lateinit var testJsonFile: File
