@@ -235,6 +235,9 @@ class KJsonQuery {
         // Check if this is a filter on a cached array
         val result = queryInCachedArray(jsonPath, limit)
         if (result != null) {
+            if (filter != null) {
+                return result.filter(filter)
+            }
             return result
         }
 
@@ -503,6 +506,7 @@ class KJsonQuery {
             sInstanceMap.remove(file.absolutePath)
         }
     }
+
     /**
      * Removes a KJsonQuery instance from the instance map based on the provided file path.
      *

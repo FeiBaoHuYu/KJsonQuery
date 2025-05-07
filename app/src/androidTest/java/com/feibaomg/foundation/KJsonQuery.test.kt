@@ -280,6 +280,7 @@ class KJsonQueryTest {
 
     @Test
     fun test_access_array_elements_with_custom_filter() {
+        kJsonQuery.cacheArrayField("""$.store.book""")
         // Test accessing nested array with property filter
         val books = kJsonQuery.query("""$.store.book""", filter= {
             it is Map<*, *> && it["category"] == "fiction" && it["price"] as Double > 13.0
