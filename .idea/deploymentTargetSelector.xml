@@ -8,19 +8,19 @@
       <SelectionState runConfigName="KJsonQuery.app">
         <option name="selectionMode" value="DROPDOWN" />
       </SelectionState>
-      <SelectionState runConfigName="test_complex_one_nested_filters()">
+      <SelectionState runConfigName="test_select_a_complex_json_object()">
         <option name="selectionMode" value="DROPDOWN" />
       </SelectionState>
-      <SelectionState runConfigName="test_access_array_elements()">
+      <SelectionState runConfigName="testCacheArrayFieldImprovePerformance()">
+        <option name="selectionMode" value="DROPDOWN" />
+      </SelectionState>
+      <SelectionState runConfigName="testQueryBuilderMapMethod()">
+        <option name="selectionMode" value="DROPDOWN" />
+      </SelectionState>
+      <SelectionState runConfigName="testQueryBuilderFirstAndFirstOrNull()">
         <option name="selectionMode" value="DROPDOWN" />
       </SelectionState>
       <SelectionState runConfigName="KJsonQueryTest">
-        <option name="selectionMode" value="DROPDOWN" />
-      </SelectionState>
-      <SelectionState runConfigName="test_select_with_path_and_filter_with_where_statement()">
-        <option name="selectionMode" value="DROPDOWN" />
-      </SelectionState>
-      <SelectionState runConfigName="test_select_with_path_returns_valid_query_builder()">
         <option name="selectionMode" value="DROPDOWN" />
       </SelectionState>
     </selectionStates>

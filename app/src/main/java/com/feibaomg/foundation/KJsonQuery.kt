@@ -4,7 +4,6 @@ import android.util.JsonReader
 import android.util.JsonToken
 import android.util.Log
 import androidx.annotation.VisibleForTesting
-import com.feibaomg.foundation.KJsonQuery.QueryBuilder
 import com.google.gson.Gson
 import java.io.File
 import java.io.FileInputStream
@@ -15,28 +14,45 @@ import java.io.InputStreamReader
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.charset.StandardCharsets
-import java.security.InvalidParameterException
 import kotlin.collections.get
 import kotlin.text.iterator
 
 
 private const val TAG = "KJsonQuery"
 
+/**
+ * A high-performance JSON query engine for Android that provides JSONPath-based querying capabilities.
+ *
+ * KJsonQuery uses memory-mapped file access for efficient reading of large JSON files and implements
+ * a streaming parser to minimize memory usage. It supports caching of array fields to improve
+ * performance for repeated queries on the same data.
+ *
+ * The class provides a fluent, SQL-like query interface through the [select] method, allowing for
+ * expressive and readable query construction.
+ *
+ * See example usage in the test file KJsonQueryTest: com/feibaomg/foundation/KJsonQuery.test.kt
+ */
 class KJsonQuery {
     // dedicated cache for array fields
     @VisibleForTesting
     private val arrayFieldsCache = mutableMapOf<String, List<Any?>>()
 
-    lateinit var jsonFile: File
+    @VisibleForTesting
+    private var jsonFile: File
 
-    // mapped byte buffer for efficient reading
+    /**
+     * mapped byte buffer for efficient reading
+     */
+    @VisibleForTesting
     private lateinit var fileChannel: FileChannel
+
+    @VisibleForTesting
     private lateinit var mappedByteBuffer: MappedByteBuffer
 
     companion object {
         val sInstanceMap = mutableMapOf<String, KJsonQuery>()
 
-        fun getInstance(filepath: String): KJsonQuery {
+        fun getOrCreate(filepath: String): KJsonQuery {
             synchronized(sInstanceMap) {
                 if (sInstanceMap[File(filepath).absolutePath] == null) {
                     sInstanceMap[File(filepath).absolutePath] = KJsonQuery(filepath)
@@ -45,7 +61,7 @@ class KJsonQuery {
             return sInstanceMap[File(filepath).absolutePath]!!
         }
 
-        fun getInstance(file: File): KJsonQuery {
+        fun getOrCreate(file: File): KJsonQuery {
             synchronized(sInstanceMap) {
                 if (sInstanceMap[file.absolutePath] == null) {
                     sInstanceMap[file.absolutePath] = KJsonQuery(file)
@@ -56,12 +72,13 @@ class KJsonQuery {
     }
 
     private constructor(filepath: String) {
-        mapJsonFileToByteBuffer(File(filepath))
+        jsonFile = File(filepath)
+        mapJsonFileToByteBuffer()
     }
 
     private constructor(file: File) {
         jsonFile = file
-        mapJsonFileToByteBuffer(file)
+        mapJsonFileToByteBuffer()
     }
 
     /**
@@ -126,8 +143,11 @@ class KJsonQuery {
         }
 
         /**
-         * Executes the query and returns the results
-         * @return List of matching JSON elements
+         * Executes the query and returns the results,
+         * 结果类型取决于要查找的json元素的类型，
+         * 如果是json对象那么返回列表中的元素是Map<String, Any?>,
+         * 如果对应的结果是一个string数组那么结果是string数组。
+         * @return List of matching JSON elements, or an empty list if no matches found
          */
         fun execute(): List<Any?> {
             if (!isExecuted || cachedResults == null) {
@@ -221,8 +241,9 @@ class KJsonQuery {
         var jsonReader: JsonReader? = null
         try {
             if (mappedByteBuffer.capacity() == 0) {
-                mapJsonFileToByteBuffer(jsonFile)
+                recreateFileBuffer()
                 if (mappedByteBuffer.capacity() == 0) {
+                    Log.e(TAG, "empty file mapped buffer size =0")
                     return emptyList()
                 }
             }
@@ -363,7 +384,7 @@ class KJsonQuery {
         val results = mutableListOf<Any?>()
         Log.d(TAG, "applyFilterToArray: $filter")
         for (item in array) {
-            if (item is Map<*, *> && matchesFilter(item as Map<*, *>, filter)) {
+            if (item is Map<*, *> && matchesFilter(item, filter)) {
                 results.add(item)
                 if (limit > 0 && results.size >= limit) {
                     break
@@ -436,17 +457,88 @@ class KJsonQuery {
         arrayFieldsCache.clear()
     }
 
+    /**
+     * Recreates the memory-mapped file buffer for the JSON file.
+     *
+     * This function checks if the JSON file has been initialized and, if so,
+     * remaps the file to a new byte buffer. This is useful when the underlying
+     * JSON file has changed and the buffer needs to be refreshed to reflect
+     * the latest content.
+     *
+     * No action is taken if the JSON file has not been initialized.
+     */
     fun recreateFileBuffer() {
-        if (::jsonFile.isInitialized) {
-            mapJsonFileToByteBuffer(jsonFile)
-        }
+        mapJsonFileToByteBuffer()
     }
 
+    /**
+     * Releases all resources associated with this KJsonQuery instance.
+     *
+     * This function performs a complete cleanup by clearing all cached array data
+     * and releasing the memory-mapped file buffer. It should be called when the
+     * KJsonQuery instance is no longer needed to prevent memory leaks, especially
+     * when working with large JSON files.
+     *
+     * The function first clears any cached array data stored in memory, then
+     * releases the memory-mapped file buffer and closes the associated file channel.
+     * After calling this method, the instance should not be used anymore.
+     *
+     */
     fun release() {
         clearArrayCache()
         releaseFileBuffer()
     }
 
+    /**
+     * Removes a KJsonQuery instance from the instance map based on the provided file.
+     *
+     * This function safely removes the KJsonQuery instance associated with the specified file
+     * from the shared instance map. This is useful when you no longer need a specific KJsonQuery
+     * instance and want to allow it to be garbage collected, freeing up resources.
+     *
+     * The operation is thread-safe as it's performed within a synchronized block on the instance map.
+     *
+     * @param file The File object whose associated KJsonQuery instance should be removed from the instance map
+     */
+    fun releaseInstance(file: File) {
+        synchronized(sInstanceMap) {
+            sInstanceMap.remove(file.absolutePath)
+        }
+    }
+    /**
+     * Removes a KJsonQuery instance from the instance map based on the provided file path.
+     *
+     * This function safely removes the KJsonQuery instance associated with the specified file path
+     * from the shared instance map. This is useful when you no longer need a specific KJsonQuery
+     * instance and want to allow it to be garbage collected, freeing up resources.
+     *
+     * The operation is thread-safe as it's performed within a synchronized block on the instance map.
+     *
+     * @param fileAbsolutePath The absolute path of the file whose associated KJsonQuery instance should be removed from the instance map
+     */
+    fun releaseInstance(fileAbsolutePath: String) {
+        synchronized(sInstanceMap) {
+            sInstanceMap.remove(fileAbsolutePath)
+        }
+    }
+
+    fun releaseAllInstances() {
+        synchronized(sInstanceMap) {
+            sInstanceMap.clear()
+        }
+    }
+
+    /**
+     * Releases resources associated with the memory-mapped file buffer.
+     *
+     * This function clears the memory-mapped byte buffer and closes the file channel
+     * if they have been initialized. It safely handles any IOException that might occur
+     * during the release process, ensuring resources are properly cleaned up even if
+     * errors occur.
+     *
+     * This should be called when the JSON file is no longer needed to prevent resource leaks,
+     * especially when dealing with large files.
+     */
     fun releaseFileBuffer() {
         if (::mappedByteBuffer.isInitialized) {
             try {
@@ -462,10 +554,6 @@ class KJsonQuery {
         }
     }
 
-    fun invalidateCache(jsonPath: String) {
-        arrayFieldsCache.remove(jsonPath)
-    }
-
     /**
      *  Rewind the buffer to the beginning for next gson reader reading again
      */
@@ -475,6 +563,19 @@ class KJsonQuery {
         }
     }
 
+    /**
+     * Executes a JSONPath query against a JSON document using a streaming parser.
+     *
+     * This function parses the provided JSONPath expression into segments, evaluates the path
+     * against the JSON content accessible through the JsonReader, and returns all matching elements.
+     * It supports various JSONPath features including property access, array indexing, wildcards,
+     * and filtering expressions.
+     *
+     * @param reader The JsonReader positioned at the beginning of the JSON document to query
+     * @param jsonPath The JSONPath expression string that defines what to extract from the JSON
+     * @param limit The maximum number of results to return; -1 means no limit
+     * @return A list containing all JSON elements matching the query, converted to appropriate Kotlin types
+     */
     private fun queryJson(reader: JsonReader, jsonPath: String, limit: Int = -1): List<Any?> {
         val pathSegments = parseJsonPath(jsonPath)
         Log.d(TAG, "jsonpath segments: $pathSegments")
@@ -601,7 +702,7 @@ class KJsonQuery {
                             if (reader.peek() == JsonToken.BEGIN_OBJECT) {
                                 // We need to check if this object matches the filter
                                 val objectValue = readObject(reader)
-                                if (objectValue is Map<*, *> && matchesFilter(objectValue, currentSegment)) {
+                                if (matchesFilter(objectValue, currentSegment)) {
                                     // If it matches, we need to evaluate the rest of the path on this object
                                     val tempReader = createTempJsonReader(objectValue)
                                     results.addAll(evaluatePath(tempReader, pathSegments, index + 1, customFilter, limit - results.size))
@@ -720,6 +821,21 @@ class KJsonQuery {
         return segments
     }
 
+    /**
+     * Parses a string segment from a JSONPath expression into a structured PathSegment object.
+     *
+     * This function analyzes a segment of a JSONPath expression and converts it into the appropriate
+     * PathSegment subtype based on its format:
+     * - Array notation with wildcard [*] becomes AllElements
+     * - Array notation with numeric index [n] becomes ArrayIndex
+     * - Array notation with filter expression [?(...)] becomes Filter
+     * - Array notation with quoted string ['name'] or ["name"] becomes Property
+     * - Any other segment is treated as a simple property name
+     *
+     * @param segment The string segment from a JSONPath expression to be parsed
+     * @return A PathSegment object representing the parsed segment, which could be one of:
+     *         Property, ArrayIndex, Filter, or AllElements
+     */
     private fun parsePathSegment(segment: String): PathSegment {
 
         return when {
@@ -743,6 +859,24 @@ class KJsonQuery {
         }
     }
 
+    /**
+     * Parses a JSONPath filter expression into a structured Filter object.
+     *
+     * This function processes filter expressions from JSONPath queries, handling both simple
+     * conditions and complex expressions with logical operators. It normalizes the input by
+     * removing outer parentheses before delegating to more specialized parsing functions.
+     *
+     * Examples of supported filter expressions:
+     * - Simple conditions: @.price < 10
+     * - Logical AND: @.price < 10 && @.category == "book"
+     * - Logical OR: @.type == "fiction" || @.price < 5
+     * - Nested expressions: (@.number == "0123-4567-8910" && @.type == "home2") || @.type == "home"
+     *
+     * @param filter The filter expression string to parse, typically from a JSONPath filter clause
+     *               like the content inside [?(...)]
+     * @return A [PathSegment.Filter] object representing the parsed filter expression with its
+     *         conditions and logical structure
+     */
     private fun parseFilter(filter: String): PathSegment.Filter {
         // Handle expressions like
         // (@.price < 10 && @.category == "book")
@@ -765,7 +899,7 @@ class KJsonQuery {
         // 检查顶层OR运算符
         if (hasTopLevelOperator(normalizedExpression, "||")) {
             val parts = splitByTopLevelOperator(normalizedExpression, "||")
-            val conditions = mutableListOf<PathSegment.Filter.Condition>()
+//            val conditions = mutableListOf<PathSegment.Filter.Condition>()
             val subFilters = mutableListOf<PathSegment.Filter>()
 
             for (part in parts) {
@@ -781,7 +915,7 @@ class KJsonQuery {
         // 检查顶层AND运算符
         if (hasTopLevelOperator(normalizedExpression, "&&")) {
             val parts = splitByTopLevelOperator(normalizedExpression, "&&")
-            val conditions = mutableListOf<PathSegment.Filter.Condition>()
+//            val conditions = mutableListOf<PathSegment.Filter.Condition>()
             val subFilters = mutableListOf<PathSegment.Filter>()
 
             for (part in parts) {
@@ -935,6 +1069,18 @@ class KJsonQuery {
         return result
     }
 
+    /**
+     * Parses a JSONPath filter condition string into a structured condition object.
+     *
+     * This function analyzes a condition string (like "@.price>10" or "name=='John'") and
+     * extracts the property name, comparison operator, and value. It supports various comparison
+     * operators (<=, >=, ==, !=, <, >) and automatically converts the value to appropriate types
+     * (Integer, Double, Boolean, or String).
+     *
+     * @param conditionStr The condition string to parse, typically from a JSONPath filter expression
+     * @return A [PathSegment.Filter.Condition] object representing the parsed condition,
+     *         or null if the string couldn't be parsed as a valid condition
+     */
     private fun parseCondition(conditionStr: String): PathSegment.Filter.Condition? {
         // Look for comparison operators
         val operators = listOf("<=", ">=", "==", "!=", "<", ">")
@@ -1120,6 +1266,19 @@ class KJsonQuery {
         }
     }
 
+    /**
+     * Evaluates whether a JSON object matches a specific filter condition.
+     *
+     * This function compares a property value from the provided object against the value
+     * specified in the condition using the operator defined in the condition. It handles
+     * various comparison operators (<, <=, ==, >=, >, !=) and performs type-aware comparisons
+     * for numeric values, supporting mixed integer and double comparisons.
+     *
+     * @param obj The JSON object represented as a Map to check against the condition
+     * @param condition The filter condition containing the property name, operator, and value to compare against
+     * @return `true` if the object's property matches the condition, `false` otherwise.
+     *         Returns `false` if the property doesn't exist in the object or if the operator is unsupported.
+     */
     private fun matchesCondition(obj: Map<*, *>, condition: PathSegment.Filter.Condition): Boolean {
         val value = obj[condition.property] ?: return false
 
@@ -1172,6 +1331,23 @@ class KJsonQuery {
         }
     }
 
+    /**
+     * Reads a JSON value from the provided JsonReader and converts it to its appropriate Kotlin type.
+     *
+     * This function handles all possible JSON value types and converts them to their corresponding
+     * Kotlin representations:
+     * - JSON objects are converted to Map<String, Any?>
+     * - JSON arrays are converted to List<Any?>
+     * - Strings remain as String
+     * - Numbers are converted to Int if possible, then Double if possible, otherwise kept as String
+     * - Booleans are converted to Boolean
+     * - Null values are converted to null
+     * - For any unrecognized token types, the value is skipped and null is returned
+     *
+     * @param reader The JsonReader positioned at the beginning of a JSON value to be read
+     * @return The parsed value converted to its appropriate Kotlin type, or null for null values
+     *         and unrecognized token types
+     */
     private fun readValue(reader: JsonReader): Any? {
         return when (reader.peek()) {
             JsonToken.BEGIN_OBJECT -> readObject(reader)
@@ -1195,6 +1371,17 @@ class KJsonQuery {
         }
     }
 
+    /**
+     * Reads a JSON object from the provided JsonReader and converts it to a Map.
+     *
+     * This function parses a JSON object by reading each name-value pair in sequence and
+     * adding them to a mutable map. It handles nested structures by recursively calling
+     * [readValue] for each object value.
+     *
+     * @param reader The JsonReader positioned at the beginning of a JSON object
+     * @return A Map containing all properties from the JSON object, with property names as keys
+     *         and their values converted to appropriate Kotlin types
+     */
     private fun readObject(reader: JsonReader): Map<String, Any?> {
         val result = mutableMapOf<String, Any?>()
         reader.beginObject()
@@ -1206,6 +1393,17 @@ class KJsonQuery {
         return result
     }
 
+    /**
+     * Reads a JSON array from the provided JsonReader and converts it to a List.
+     *
+     * This function parses a JSON array by reading each element in sequence and converting
+     * them to their appropriate Kotlin types. It handles nested structures by recursively
+     * calling [readValue] for each array element.
+     *
+     * @param reader The JsonReader positioned at the beginning of a JSON array
+     * @return A List containing all elements from the JSON array, with each element
+     *         converted to its appropriate Kotlin type (String, Number, Boolean, Map, List, or null)
+     */
     private fun readArray(reader: JsonReader): List<Any?> {
         val result = mutableListOf<Any?>()
         reader.beginArray()
@@ -1216,6 +1414,20 @@ class KJsonQuery {
         return result
     }
 
+    /**
+     * Creates a temporary JsonReader for a given value.
+     *
+     * This utility function converts any object to its JSON string representation
+     * using Gson, then creates a JsonReader that can parse this JSON. This is useful
+     * when you need to process an in-memory object as if it were being read from a
+     * JSON source, particularly when evaluating nested JSONPath expressions against
+     * objects that have already been parsed.
+     *
+     * @param value The object to convert to JSON and create a reader for. Can be any type
+     *              that Gson can serialize, including null values, primitives, collections,
+     *              and custom objects.
+     * @return A JsonReader instance configured to read the JSON representation of the provided value.
+     */
     private fun createTempJsonReader(value: Any?): JsonReader {
         // Convert the value to JSON and create a new JsonReader
         val json = Gson().toJson(value)
@@ -1234,10 +1446,10 @@ class KJsonQuery {
      * @param jsonFile The File object representing the JSON file to be loaded
      * @throws FileNotFoundException If the specified file does not exist
      */
-    private fun mapJsonFileToByteBuffer(jsonFile: File) {
+    private fun mapJsonFileToByteBuffer() {
 
         if (!jsonFile.exists()) {
-            println("File does not exist: $jsonFile")
+            Log.e(TAG, "File does not exist: $jsonFile")
             throw FileNotFoundException("File does not exist: $jsonFile")
         }
         // Using memory mapping to open the file

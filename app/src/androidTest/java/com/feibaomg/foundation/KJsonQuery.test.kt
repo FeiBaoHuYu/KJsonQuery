@@ -4,41 +4,40 @@ import android.content.Context
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import junit.framework.TestCase.assertEquals
+import junit.framework.TestCase.assertFalse
 import junit.framework.TestCase.assertNotNull
+import junit.framework.TestCase.assertNotSame
+import junit.framework.TestCase.assertNull
+import junit.framework.TestCase.assertSame
+import junit.framework.TestCase.assertTrue
+import junit.framework.TestCase.fail
 import org.junit.Assert
+import org.junit.Assert.assertNotEquals
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.FileOutputStream
+import java.nio.ByteBuffer
+import java.nio.MappedByteBuffer
+import kotlin.jvm.java
+import kotlin.system.measureTimeMillis
 
 @RunWith(AndroidJUnit4::class)
 class KJsonQueryTest {
 
-    private lateinit var context: Context
-    private lateinit var testJsonFile: File
-    private lateinit var kJsonQuery: KJsonQuery
-
-    @Volatile
-    var copied = false
-
-    fun copyFile() {
-        if (!copied) {
-            copied = true
-            val fileName = "store.json"
-            val file = File(context.getExternalFilesDir(null), fileName)
-            context.assets.open(fileName).copyTo(file.outputStream())
-        }
-    }
 
     @Before
     fun setUp() {
         context = InstrumentationRegistry.getInstrumentation().targetContext
-        // Create a test JSON file with nested objects and arrays
+        //为方便维护和AI代码生成，这个用于测试的json内容与assets的store.json中的内容
+        // 完全相同,修改这里时也要同步修改store.json.
         val jsonContent = """
         {
           "store": {
+            "name": "bookstore",
+            "close_days": [6, 7, 13, 14, 21, 22],
             "book": [
               {
                 "category": "reference",
@@ -96,21 +95,83 @@ class KJsonQueryTest {
         testJsonFile = File(context.filesDir, "test_complex.json")
         FileOutputStream(testJsonFile).use { it.write(jsonContent.toByteArray()) }
 
-        kJsonQuery = KJsonQuery.getInstance(testJsonFile)
+        kJsonQuery = KJsonQuery.getOrCreate(testJsonFile)
     }
 
     @Test
-    fun test_select_with_path_returns_valid_query_builder() {
+    fun test_select_a_complex_json_object() {
         // Call the select method with a path
-        val queryBuilder = kJsonQuery.select("$.store")
+        val result = kJsonQuery.select("$.store").execute()
+        //查询结果永远是一个list，liist里面可能是Map<String, Any>，也可能是string或者数字(double类型
+        val store = (result as List<Map<*, *>>)[0]
 
-        // Verify that the returned object is a valid QueryBuilder instance
-        assertNotNull(queryBuilder)
+        assertEquals("bookstore", store["name"])
 
-        // Verify that the QueryBuilder has the correct path by executing a query
-        val result = queryBuilder.execute()
+        val books = store["book"] as List<Map<*, *>>
 
-        assertEquals("bookstore", (result as List<Map<*, *>>)[0]["bookstore"])
+        assertEquals(7, books.size)
+        assertEquals("Sayings of the Century", books[0]["title"])
+
+        val bicycle = store["bicycle"] as Map<String, *>
+
+        assertEquals("red", bicycle["color"])
+        assertEquals(19.95, bicycle["price"])
+
+        val features = bicycle["features"] as List<*>
+
+        assertEquals(3, features.size)
+        assertEquals("speed", features[0])
+        assertEquals("comfort", features[1])
+        assertEquals("safety", features[2])
+    }
+
+    @Test
+    fun test_select_number_arrays() {
+        // Call the select method with a path
+        val results = kJsonQuery.select("$.store.close_days").execute()
+        val expected = listOf(6, 7, 13, 14, 21, 22)
+
+        assertNotNull(results)
+        assertEquals(6, results.size)
+        assertEquals(expected[0], (results as List<Int>)[0])
+        assertEquals(expected[1], (results as List<Int>)[1])
+        assertEquals(expected[2], (results as List<Int>)[2])
+        assertEquals(expected[3], (results as List<Int>)[3])
+        assertEquals(expected[4], (results as List<Int>)[4])
+        assertEquals(expected[5], (results as List<Int>)[5])
+    }
+
+    @Test
+    fun testQueryBuilderMapMethod() {
+
+        class Book(val category:String, val title: String, val author: String, val price: Double)
+
+        // Use map to transform each user object to just their name
+        val names = kJsonQuery.select("$.store.book")
+            .map { it ->
+                val map = it as Map<*, *>
+
+                Book(
+                    map["category"] as String,
+                    map["title"] as String,
+                    map["author"] as String,
+                    map["price"] as Double
+                )
+                // 也可以用Gson库转换成Book类
+//                val jsonStr =Gson().toJson (userObj as Map<*, *>)
+//                Gson().fromJson(jsonStr, Book::class.java)
+            }
+
+        // Verify the transformation was applied correctly
+        assertEquals(7, names.size)
+        assertEquals(true, names[0] is Book)
+
+        val book1 = names[0] as Book
+
+        assertEquals("reference", book1.category)
+        assertEquals("Nigel Rees", book1.author)
+        assertEquals("Sayings of the Century", book1.title)
+        assertEquals(8.95, book1.price)
     }
 
     /**
@@ -135,6 +196,43 @@ class KJsonQueryTest {
         assertEquals("历史", (results[0] as Map<*, *>)["category"])
     }
 
+
+    @Test
+    fun testQueryBuilderFirstAndFirstOrNull() {
+
+        // Test finding a result using firstOrNull()
+        val result = kJsonQuery.select("$.store.book")
+            .where { it ->
+                it is Map<*, *> && it["title"] == "48 hour around the world"
+            }
+            .firstOrNull()
+
+        assertNotNull("Should find book 48 hour around the world", result)
+        assertTrue("Result should be a Map", result is Map<*, *>)
+        assertEquals("Should have price", 13.59, (result as Map<*, *>)["price"])
+
+        // Test not finding a result using firstOrNull() (should return null)
+        val nonExistentBook = kJsonQuery.select("$.store.book")
+            .where { result ->
+                result is Map<*, *> && result["title"] == "NonExistent"
+            }
+            .firstOrNull()
+
+        assertNull("Should return null for non-existent book", nonExistentBook)
+
+        // Test exception when using first() with no results
+        try {
+            kJsonQuery.select("$.store.book")
+                .where { result ->
+                    result is Map<*, *> && result["title"] == "NonExistent"
+                }
+                .first()
+
+            fail("Should throw NoSuchElementException")
+        } catch (e: NoSuchElementException) {
+            // Expected exception
+        }
+    }
 
     @Test
     fun test_wild_char_to_get_all_array_elements() {
@@ -240,7 +338,7 @@ class KJsonQueryTest {
 
         Assert.assertThrows("File does not exist: $nonExistentFile", FileNotFoundException::class.java) {
             // Try to create query from non-existent file
-            KJsonQuery.getInstance(nonExistentFile)
+            KJsonQuery.getOrCreate(nonExistentFile)
         }
     }
 
@@ -253,7 +351,7 @@ class KJsonQueryTest {
 
         try {
             // Try to query from empty file
-            val emptyQuery = KJsonQuery.getInstance(emptyFile)
+            val emptyQuery = KJsonQuery.getOrCreate(emptyFile)
             val emptyResult = emptyQuery.query("$.anyPath")
 
             // Verify result is empty
@@ -263,4 +361,67 @@ class KJsonQueryTest {
             emptyFile.delete()
         }
     }
+
+
+    @Test
+    fun testCacheArrayFieldImprovePerformance() {
+        // First, clear any existing cache
+        kJsonQuery.clearArrayCache()
+
+        // Measure time for first query without cache
+        val firstQueryTime = measureTimeMillis {
+            val result = kJsonQuery.query("$.store.book")
+            assertEquals(7, result.size)
+        }
+
+        // Cache the array for future queries
+        val cachedArray = kJsonQuery.cacheArrayField("$.store.book")
+        assertNotNull("Array should be cached successfully", cachedArray)
+
+        // Verify array is cached
+        assertTrue(kJsonQuery.isArrayFieldCached("$.store.book"))
+
+        // Measure time for second query with cache
+        val secondQueryTime = measureTimeMillis {
+            val result = kJsonQuery.query("$.store.book")
+            assertEquals(7, result.size) // Should still find Bob and Charlie
+        }
+
+        // The second query should be faster due to caching
+        assertTrue("Query with cache should be faster than without cache",
+            secondQueryTime < firstQueryTime || secondQueryTime < 50) // Allow for small timing variations
+
+        // Test cache invalidation
+        kJsonQuery.invalidateArrayCache("$.store.book")
+        assertFalse(kJsonQuery.isArrayFieldCached("$.store.book"))
+    }
+
+    @Test
+    fun testSelectCreatesNewQueryBuilderEachTime() {
+        // Call select() twice to get two QueryBuilder instances
+        val queryBuilder1 = kJsonQuery.select()
+        val queryBuilder2 = kJsonQuery.select()
+        
+        // Verify that the two instances are different objects
+        assertNotSame("Should create a new QueryBuilder instance each time", queryBuilder1, queryBuilder2)
+        
+        // Add different paths to each builder to further demonstrate they are independent
+        queryBuilder1.from("$.store.book")
+        queryBuilder2.from("$.store.bicycle")
+        
+        // Execute both queries
+        val result1 = queryBuilder1.execute()
+        val result2 = queryBuilder2.execute()
+        
+        // Verify results are different, showing the instances are independent
+        assertNotEquals(result1, result2)
+    }
+
+
+
+
+    private lateinit var context: Context
+    private lateinit var testJsonFile: File
+    private lateinit var kJsonQuery: KJsonQuery
+
 }

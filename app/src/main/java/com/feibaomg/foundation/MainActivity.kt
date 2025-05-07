@@ -66,7 +66,7 @@ class MainActivity : ComponentActivity() {
             if (!File(getExternalFilesDir(null), fileName).exists()) {
                 assets.open(fileName).copyTo(file!!.outputStream())
             }
-            kjQuery = KJsonQuery.getInstance(file!!.absolutePath)
+            kjQuery = KJsonQuery.getOrCreate(file!!.absolutePath)
 //            kjQuery!!.cacheArrayField("$.IniTimer.data")
         }
     }
