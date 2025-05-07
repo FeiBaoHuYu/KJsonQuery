@@ -8,7 +8,6 @@ import junit.framework.TestCase.assertFalse
 import junit.framework.TestCase.assertNotNull
 import junit.framework.TestCase.assertNotSame
 import junit.framework.TestCase.assertNull
-import junit.framework.TestCase.assertSame
 import junit.framework.TestCase.assertTrue
 import junit.framework.TestCase.fail
 import org.junit.Assert
@@ -19,8 +18,6 @@ import org.junit.runner.RunWith
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.FileOutputStream
-import java.nio.ByteBuffer
-import java.nio.MappedByteBuffer
 import kotlin.jvm.java
 import kotlin.system.measureTimeMillis
 
@@ -279,6 +276,17 @@ class KJsonQueryTest {
         val fictionBooks = kJsonQuery.query("""$.store.book[?(@.category=="fiction")]""") as List<Map<String, *>>
         assertEquals(2, fictionBooks.size)
         assertEquals("Evelyn Waugh", fictionBooks[0]["author"])
+    }
+
+    @Test
+    fun test_access_array_elements_with_custom_filter() {
+        // Test accessing nested array with property filter
+        val books = kJsonQuery.query("""$.store.book""", filter= {
+            it is Map<*, *> && it["category"] == "fiction" && it["price"] as Double > 13.0
+        }) as List<Map<String, *>>
+
+        assertEquals(1, books.size)
+        assertEquals("48 hour around the world", books[0]["title"])
     }
 
     @Test
